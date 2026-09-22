@@ -1,0 +1,36 @@
+{
+  "name": "wavelength-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest",
+    "test:ci": "vitest --run --coverage",
+    "test:watch": "vitest --watch",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@next/swc-linux-x64-gnu": "15.2.0",
+    "@types/node": "22.13.10",
+    "@types/react": "19.0.10",
+    "@types/react-dom": "19.0.4",
+    "next": "15.2.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "typescript": "5.7.3"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "^16.3.5",
+    "@playwright/test": "^1.44.0",
+    "@testing-library/jest-dom": "^6",
+    "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14",
+    "eslint": "^10.11.0",
+    "jsdom": "^22",
+    "msw": "^1",
+    "vitest": "^1"
+  }
+}
