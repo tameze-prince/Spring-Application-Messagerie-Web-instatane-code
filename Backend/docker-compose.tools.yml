@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # Portainer CE - Container & Docker Management Interface
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: tuto-portainer
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "9090:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+  # pgAdmin 4 - PostgreSQL Database Management Interface
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: tuto-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@tuto.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  # RedisInsight - Redis Cache & Memory Management Interface
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: tuto-redisinsight
+    restart: always
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+
+volumes:
+  portainer_data:
+  pgadmin_data:
+  redisinsight_data:
