@@ -18,4 +18,6 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     boolean existsById_ConversationIdAndId_UserId(UUID conversationId, UUID userId);
 
     long countById_ConversationIdAndStatus(UUID conversationId, String status);
+
+    long countById_ConversationId(UUID conversationId);
 }

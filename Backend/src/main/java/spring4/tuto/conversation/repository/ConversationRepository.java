@@ -28,4 +28,6 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
             @Param("type") ConversationType type,
             @Param("user1Id") UUID user1Id,
             @Param("user2Id") UUID user2Id);
+
+    List<Conversation> findByType(ConversationType type);
 }

@@ -1,8 +1,21 @@
 "use client";
 
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/context/AuthContext";
+import { useWebSocket } from "@/lib/hooks/useWebSocket";
+import { 
+  conversationApi, 
+  messageApi, 
+  userApi,
+  type ConversationDto, 
+  type MessageDto, 
+  type UserDto,
+  type SendMessageRequest 
+} from "@/lib/api/client";
 
-type IconName = "chat" | "users" | "broadcast" | "bookmark" | "settings" | "search" | "more" | "phone" | "video" | "info" | "smile" | "paperclip" | "mic" | "send" | "close" | "check" | "moon" | "sun" | "command" | "bell" | "arrow" | "palette";
+type IconName = 
+  "chat" | "users" | "broadcast" | "bookmark" | "settings" | "search" | "more" | "phone" | "video" | "info" | "smile" | "paperclip" | "mic" | "send" | "close" | "check" | "moon" | "sun" | "command" | "bell" | "arrow" | "palette";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -32,28 +45,38 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
-const chats = [
-  { name: "Alma Reyes", initials: "AR", color: "coral", text: "That sounds perfect. I’ll bring the references.", time: "10:42", unread: 2, online: true, pulse: [2,4,2,7,4,8,3,5,2,7,3,2] },
-  { name: "Design Sync", initials: "DS", color: "violet", text: "Marek: I’ve added the motion notes", time: "10:36", unread: 0, pulse: [1,2,4,3,2,5,7,4,3,2,4,1] },
-  { name: "Noah Bennett", initials: "NB", color: "blue", text: "Voice note", time: "09:58", unread: 0, pulse: [2,3,1,2,3,2,1,2,3,2,1,1] },
-  { name: "Weekend plans", initials: "WP", color: "orange", text: "You: Sunday works for me", time: "Yesterday", unread: 0, pulse: [5,3,7,2,4,6,2,3,1,2,3,1] },
-  { name: "Saved Messages", initials: "SM", color: "ink", text: "Project links and ideas", time: "Mon", unread: 0, pulse: [1,1,1,2,1,1,1,1,1,1,1,1] },
-];
+function getInitials(name: string) {
+  return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+}
 
-const baseMessages = [
-  { from: "them", text: "I’ve been thinking about the direction for the new onboarding flow.", time: "10:31" },
-  { from: "them", text: "Less instruction, more momentum. Let people discover the value while they’re already moving through it.", time: "10:32" },
-  { from: "me", text: "I love that. Like a good conversation — it shouldn’t feel like a form you have to complete.", time: "10:34", read: true },
-  { from: "them", text: "Exactly. I put a few references in the board. The warm, quiet ones felt right.", time: "10:38" },
-  { from: "me", text: "That sounds perfect. I’ll bring the references.", time: "10:42", read: true },
-];
+function getColorFromName(name: string) {
+  const colors = ["coral", "violet", "blue", "orange", "ink", "emerald", "rose", "amber"];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
 
 const frequencies = ["midnight", "daylight", "dusk", "paper", "focus"] as const;
 type Frequency = (typeof frequencies)[number];
 
+function formatTime(date: Date | string) {
+  const d = new Date(date);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+  if (diff < 86400000) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString();
+}
+
 export default function Messenger() {
-  const [active, setActive] = useState(0);
-  const [messages, setMessages] = useState(baseMessages);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isConnected, onMessageCreated, onTypingStarted, onTypingStopped, sendMessage: wsSendMessage } = useWebSocket();
+  const router = useRouter();
+  
+  const [conversations, setConversations] = useState<ConversationDto[]>([]);
+  const [messages, setMessages] = useState<MessageDto[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("midnight");
@@ -63,76 +86,293 @@ export default function Messenger() {
   const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { document.documentElement.dataset.frequency = frequency; }, [frequency]);
+  // Load conversations on mount
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadConversations();
+    }
+  }, [isAuthenticated]);
+
+  // WebSocket event handlers
+  useEffect(() => {
+    const offMessage = onMessageCreated((payload: unknown) => {
+      const msg = payload as MessageDto;
+      if (msg.conversationId === activeConversationId) {
+        setMessages(prev => [...prev, msg]);
+      }
+      // Update conversation list with last message
+      setConversations(prev => prev.map(c => 
+        c.id === msg.conversationId ? { ...c, lastMessageBody: msg.body, lastMessageAt: msg.createdAt } : c
+      ));
+    });
+
+    const offTypingStart = onTypingStarted((payload: unknown) => {
+      const data = payload as { conversationId: string; userId: string; username: string };
+      if (data.conversationId === activeConversationId && data.userId !== user?.id) {
+        setTypingUser(data.username);
+      }
+    });
+
+    const offTypingStop = onTypingStopped((payload: unknown) => {
+      const data = payload as { conversationId: string };
+      if (data.conversationId === activeConversationId) {
+        setTypingUser(null);
+      }
+    });
+
+    return () => {
+      offMessage();
+      offTypingStart();
+      offTypingStop();
+    };
+  }, [activeConversationId, user?.id, onMessageCreated, onTypingStarted, onTypingStopped]);
+
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen(true); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { 
+        event.preventDefault(); 
+        setPaletteOpen(true); 
+      }
       if (event.key === "Escape") { setPaletteOpen(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => { document.documentElement.dataset.frequency = frequency; }, [frequency]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(null), 4000); return () => window.clearTimeout(timer); } }, [toast]);
 
-  const filteredChats = useMemo(() => chats.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.text.toLowerCase().includes(search.toLowerCase())), [search]);
-  const chat = chats[active];
-  function sendMessage(event?: FormEvent) {
-    event?.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    setMessages(prev => [...prev, { from: "me", text, time: "Now", read: false }]);
-    setDraft("");
-    setToast("Message held for 4 seconds");
-    window.setTimeout(() => setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, read: true } : m)), 1200);
-  }
-  function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } }
-  function chooseFrequency(next: Frequency) { setFrequency(next); setPaletteOpen(false); setToast(`${next[0].toUpperCase() + next.slice(1)} frequency active`); }
+  const [typingUser, setTypingUser] = useState<string | null>(null);
 
-  return <main className={`messenger density-${density}`}>
-    <aside className="app-rail" aria-label="Primary navigation">
-      <button className="brand" aria-label="Wavelength home"><span>W</span></button>
-      <nav>
+  async function loadConversations() {
+    try {
+      const response = await conversationApi.list();
+      setConversations(response.data);
+    } catch (err) {
+      console.error("Failed to load conversations:", err);
+      setToast("Failed to load conversations");
+    }
+  }
+
+  async function loadMessages(conversationId: string) {
+    try {
+      const response = await messageApi.list(conversationId);
+      setMessages(response.data.reverse()); // Show oldest first
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+      setToast("Failed to load messages");
+    }
+  }
+
+  async function handleConversationClick(conversationId: string) {
+    setActiveConversationId(conversationId);
+    setDraft("");
+    setMessages([]);
+    await loadMessages(conversationId);
+  }
+
+  async function sendMessage(event?: FormEvent) {
+    event?.preventDefault();
+    if (!activeConversationId || !draft.trim()) return;
+
+    const text = draft.trim();
+    setDraft("");
+
+    try {
+      // Optimistic update
+      const optimisticMsg: MessageDto = {
+        id: `temp-${Date.now()}`,
+        conversationId: activeConversationId,
+        senderId: user?.id || "",
+        type: "TEXT",
+        body: text,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        sequenceNumber: messages.length + 1,
+        sender: { id: user?.id || "", username: user?.username || "", email: "" }
+      };
+      setMessages(prev => [...prev, optimisticMsg]);
+
+      // Send via WebSocket for real-time
+      wsSendMessage(activeConversationId, text);
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      setToast("Failed to send message");
+    }
+  }
+
+  function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) { 
+    if (event.key === "Enter" && !event.shiftKey) { 
+      event.preventDefault(); 
+      sendMessage(); 
+    } 
+  }
+
+  function chooseFrequency(next: Frequency) { 
+    setFrequency(next); 
+    setPaletteOpen(false); 
+    setToast(`${next[0].toUpperCase() + next.slice(1)} frequency active`); 
+  }
+
+  const filteredConversations = useMemo(() => 
+    conversations.filter(c => 
+      c.title?.toLowerCase().includes(search.toLowerCase()) || 
+      c.lastMessageBody?.toLowerCase().includes(search.toLowerCase())
+    ), 
+  [search, conversations]);
+
+  const activeConversation = conversations.find(c => c.id === activeConversationId);
+
+  if (authLoading || !isAuthenticated) {
+    return <div className="loading-screen">Loading...</div>;
+  }
+
+  if (!user) {
+    return <div className="loading-screen">Please log in</div>;
+  }
+
+  return (
+    <main className={`messenger density-${density}`}>
+      <aside className="app-rail" aria-label="Primary navigation">
+        <button className="brand" aria-label="Wavelength home"><span>W</span></button>
+        <nav>
+          <RailButton icon="chat" label="Chats" active={true} />
+          <RailButton icon="users" label="Groups" />
+          <RailButton icon="broadcast" label="Channels" />
+          <RailButton icon="bookmark" label="Saved messages" />
+        </nav>
+        <div className="rail-bottom">
+          <RailButton icon="settings" label="Settings" />
+          <button className="avatar avatar-user" aria-label="Open profile">{getInitials(user.username)}</button>
+        </div>
+      </aside>
+
+      <section className="conversations" aria-label="Conversations">
+        <header className="list-header">
+          <div><p className="eyebrow">YOUR SPACE</p><h1>Messages</h1></div>
+          <button className="icon-button" aria-label="Open command palette" onClick={() => setPaletteOpen(true)}><Icon name="command" /></button>
+        </header>
+        <label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" /><kbd>⌘ K</kbd></label>
+        <div className="section-title"><span>RECENT</span><button onClick={() => setToast("New conversation flow coming next")}>New <span aria-hidden="true">+</span></button></div>
+        <div className="chat-list">
+          {filteredConversations.map((conv) => {
+            const color = conv.avatarFileId ? "coral" : getColorFromName(conv.title || "Chat");
+            return (
+              <button 
+                className={`chat-row ${activeConversationId === conv.id ? "selected" : ""}`}
+                onClick={() => handleConversationClick(conv.id)}
+                key={conv.id}
+              >
+                <div className={`avatar avatar-${color}`}>{getInitials(conv.title || "Chat")}</div>
+                <div className="chat-main">
+                  <div className="chat-name"><strong>{conv.title || "Conversation"}</strong><time>{conv.lastMessageAt ? formatTime(conv.lastMessageAt) : ""}</time></div>
+                  <div className="chat-preview"><span>{conv.lastMessageBody || "No messages yet"}</span></div>
+                </div>
+              </button>
+            );
+          })}
+          {filteredConversations.length === 0 && <div className="empty-list">No conversations found.<button onClick={() => setSearch("")}>Clear search</button></div>}
+        </div>
+        <footer className="focus-status"><Icon name="bell" size={16} /><span>{isConnected ? "● Connected" : "○ Connecting..."}</span></footer>
+      </section>
+
+      <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Select a conversation"}>
+        {activeConversation ? (
+          <>
+            <header className="chat-header">
+              <div className={`avatar avatar-${getColorFromName(activeConversation.title || "Chat")}`}>{getInitials(activeConversation.title || "Chat")}</div>
+              <div className="chat-person"><h2>{activeConversation.title || "Conversation"}</h2><p>{isConnected ? "Online" : "Connecting..."}</p></div>
+              <div className="chat-actions">
+                <button className="icon-button" aria-label="Start voice call"><Icon name="phone" /></button>
+                <button className="icon-button" aria-label="Start video call"><Icon name="video" /></button>
+                <button className={`icon-button ${detailsOpen ? "active" : ""}`} onClick={() => setDetailsOpen(!detailsOpen)} aria-label="Toggle conversation details"><Icon name="info" /></button>
+              </div>
+            </header>
+            <div className="reconnect" role="status"><span />All caught up. Your messages are in sync.</div>
+            <div className="message-scroll">
+              <div className="date-divider"><span>Today</span></div>
+              {messages.map((message) => (
+                <article className={`message ${message.senderId === user.id ? "me" : "them"}`} key={`${message.id}-${message.createdAt}`}>
+                  <div className="bubble">
+                    <p>{message.body}</p>
+                    <div className="message-meta">
+                      <time>{formatTime(message.createdAt)}</time>
+                      {message.senderId === user.id && (
+                        <span className={`receipt ${message.editedAt ? "edited" : "read"}`} aria-label={message.editedAt ? "Edited" : "Read"}>
+                          <Icon name="check" size={13} /><Icon name="check" size={13} />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {typingUser && <div className="typing" aria-live="polite"><span className="pulse-bars"><i /><i /><i /></span> {typingUser} is typing</div>}
+            </div>
+            <form className="composer" onSubmit={sendMessage}>
+              <button type="button" className="icon-button" aria-label="Attach a file"><Icon name="paperclip" /></button>
+              <textarea ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onComposerKey} placeholder="Write a message…" rows={1} aria-label="Message" />
+              <button type="button" className="icon-button" aria-label="Choose an expression"><Icon name="smile" /></button>
+              {draft ? <button className="send-button" aria-label="Send message" type="submit"><Icon name="send" size={19} /></button> : <button type="button" className="icon-button" aria-label="Record voice message"><Icon name="mic" /></button>}
+            </form>
+          </>
+        ) : (
+          <div className="empty-chat">
+            <Icon name="chat" size={64} />
+            <h2>Select a conversation</h2>
+            <p>Choose a chat from the list or start a new one</p>
+          </div>
+        )}
+      </section>
+
+      {detailsOpen && activeConversation && (
+        <aside className="details" aria-label="Conversation details">
+          <header>
+            <button className="close-details" onClick={() => setDetailsOpen(false)} aria-label="Close details"><Icon name="close" /></button>
+            <div className={`profile-avatar avatar-${getColorFromName(activeConversation.title || "Chat")}`}>{getInitials(activeConversation.title || "Chat")}</div>
+            <h2>{activeConversation.title || "Conversation"}</h2>
+          </header>
+          <div className="detail-actions">
+            <button><Icon name="search" />Search</button>
+            <button><Icon name="bell" />Mute</button>
+            <button><Icon name="palette" />Frequency</button>
+          </div>
+          <DetailSection label="ABOUT"><p>No description yet.</p></DetailSection>
+          <DetailSection label="COMFORT">
+            <label className="toggle-row">Read receipts <input type="checkbox" defaultChecked /><span /></label>
+            <label className="toggle-row">Mute notifications <input type="checkbox" /><span /></label>
+          </DetailSection>
+        </aside>
+      )}
+
+      <div className="bottom-tabs" aria-label="Mobile navigation">
         <RailButton icon="chat" label="Chats" active />
         <RailButton icon="users" label="Groups" />
-        <RailButton icon="broadcast" label="Channels" />
-        <RailButton icon="bookmark" label="Saved messages" />
-      </nav>
-      <div className="rail-bottom"><RailButton icon="settings" label="Settings" /><button className="avatar avatar-user" aria-label="Open profile">PL</button></div>
-    </aside>
-
-    <section className="conversations" aria-label="Conversations">
-      <header className="list-header"><div><p className="eyebrow">YOUR SPACE</p><h1>Messages</h1></div><button className="icon-button" aria-label="Open command palette" onClick={() => setPaletteOpen(true)}><Icon name="command" /></button></header>
-      <label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" /><kbd>⌘ K</kbd></label>
-      <div className="section-title"><span>RECENT</span><button onClick={() => setToast("New conversation flow coming next")}>New <span aria-hidden="true">+</span></button></div>
-      <div className="chat-list">
-        {filteredChats.map((item) => { const originalIndex = chats.indexOf(item); return <button className={`chat-row ${active === originalIndex ? "selected" : ""}`} onClick={() => setActive(originalIndex)} key={item.name}>
-          <div className={`avatar avatar-${item.color}`}>{item.initials}{item.online && <i />}</div><div className="chat-main"><div className="chat-name"><strong>{item.name}</strong><time>{item.time}</time></div><div className="chat-preview"><span>{item.text}</span>{item.unread > 0 && <b>{item.unread}</b>}</div></div><Pulse values={item.pulse} /></button>; })}
-        {filteredChats.length === 0 && <div className="empty-list">No conversations found.<button onClick={() => setSearch("")}>Clear search</button></div>}
+        <RailButton icon="settings" label="Settings" />
       </div>
-      <footer className="focus-status"><Icon name="bell" size={16} /><span>Focus hours until 17:00</span><button aria-label="Configure focus hours"><Icon name="arrow" size={15} /></button></footer>
-    </section>
-
-    <section className="chat-panel" aria-label={`Conversation with ${chat.name}`}>
-      <header className="chat-header"><div className={`avatar avatar-${chat.color}`}>{chat.initials}{chat.online && <i />}</div><div className="chat-person"><h2>{chat.name}</h2><p>{active === 0 ? "Active now" : "8 members"}</p></div><div className="chat-actions"><button className="icon-button" aria-label="Start voice call"><Icon name="phone" /></button><button className="icon-button" aria-label="Start video call"><Icon name="video" /></button><button className={`icon-button ${detailsOpen ? "active" : ""}`} onClick={() => setDetailsOpen(!detailsOpen)} aria-label="Toggle conversation details"><Icon name="info" /></button></div></header>
-      <div className="reconnect" role="status"><span />All caught up. Your messages are in sync.</div>
-      <div className="message-scroll">
-        <div className="date-divider"><span>Today</span></div>
-        {messages.map((message, index) => <article className={`message ${message.from}`} key={`${message.text}-${index}`}><div className="bubble"><p>{message.text}</p><div className="message-meta"><time>{message.time}</time>{message.from === "me" && <span className={message.read ? "receipt read" : "receipt"} aria-label={message.read ? "Read" : "Sent"}><Icon name="check" size={13} /><Icon name="check" size={13} /></span>}</div></div></article>)}
-        {draft && <div className="typing" aria-live="polite"><span className="pulse-bars"><i /><i /><i /></span> Alma is typing</div>}
+      {toast && <div className="toast" role="status"><span className="toast-dot" />{toast}<button onClick={() => { setMessages([]); setToast("Message unsent"); }}>Undo</button></div>}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onFrequency={chooseFrequency} onSelect={(label) => { setPaletteOpen(false); setToast(label); }} />}
+      <div className="frequency-dock" aria-label="Appearance controls">
+        <button className="dock-main" onClick={() => setPaletteOpen(true)}><Icon name="palette" size={17} /> <span>Frequency</span></button>
+        <div className="frequency-pips">{frequencies.map(f => <button aria-label={`Switch to ${f}`} className={`pip ${f} ${frequency === f ? "picked" : ""}`} onClick={() => chooseFrequency(f)} key={f} />)}</div>
+        <div className="density-control"><span>Density</span>{(["compact", "cozy", "comfortable"] as const).map(d => <button className={density === d ? "active" : ""} onClick={() => setDensity(d)} key={d}>{d.slice(0, 1).toUpperCase()}</button>)}</div>
       </div>
-      <form className="composer" onSubmit={sendMessage}><button type="button" className="icon-button" aria-label="Attach a file"><Icon name="paperclip" /></button><textarea ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onComposerKey} placeholder="Write a message…" rows={1} aria-label="Message" /><button type="button" className="icon-button" aria-label="Choose an expression"><Icon name="smile" /></button>{draft ? <button className="send-button" aria-label="Send message" type="submit"><Icon name="send" size={19} /></button> : <button type="button" className="icon-button" aria-label="Record voice message"><Icon name="mic" /></button>}</form>
-    </section>
-
-    {detailsOpen && <aside className="details" aria-label="Conversation details"><header><button className="close-details" onClick={() => setDetailsOpen(false)} aria-label="Close details"><Icon name="close" /></button><div className={`profile-avatar avatar-${chat.color}`}>{chat.initials}</div><h2>{chat.name}</h2><p>@{chat.name.toLowerCase().replaceAll(" ", ".")}</p></header><div className="detail-actions"><button><Icon name="search" />Search</button><button><Icon name="bell" />Mute</button><button><Icon name="palette" />Frequency</button></div><DetailSection label="SHARED"><button className="media-grid" aria-label="View shared media"><span /><span /><span /><span /><b>View all media <Icon name="arrow" size={15} /></b></button></DetailSection><DetailSection label="ABOUT"><p>Creative director, collector of small beautiful things, usually near a good coffee.</p></DetailSection><DetailSection label="COMFORT"><label className="toggle-row">Read receipts <input type="checkbox" defaultChecked /><span /></label><label className="toggle-row">Mute notifications <input type="checkbox" /><span /></label></DetailSection></aside>}
-
-    <div className="bottom-tabs" aria-label="Mobile navigation"><RailButton icon="chat" label="Chats" active /><RailButton icon="users" label="Groups" /><RailButton icon="settings" label="Settings" /></div>
-    {toast && <div className="toast" role="status"><span className="toast-dot" />{toast}<button onClick={() => { setMessages(baseMessages); setToast("Message unsent"); }}>Undo</button></div>}
-    {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onFrequency={chooseFrequency} onSelect={(label) => { setPaletteOpen(false); setToast(label); }} />}
-    <div className="frequency-dock" aria-label="Appearance controls"><button className="dock-main" onClick={() => setPaletteOpen(true)}><Icon name="palette" size={17} /> <span>Frequency</span></button><div className="frequency-pips">{frequencies.map(f => <button aria-label={`Switch to ${f}`} className={`pip ${f} ${frequency === f ? "picked" : ""}`} onClick={() => chooseFrequency(f)} key={f} />)}</div><div className="density-control"><span>Density</span>{(["compact", "cozy", "comfortable"] as const).map(d => <button className={density === d ? "active" : ""} onClick={() => setDensity(d)} key={d}>{d.slice(0, 1).toUpperCase()}</button>)}</div></div>
-  </main>;
+    </main>
+  );
 }
 
-function RailButton({ icon, label, active = false }: { icon: IconName; label: string; active?: boolean }) { return <button className={`rail-button ${active ? "active" : ""}`} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={icon} /><span>{label}</span></button>; }
-function Pulse({ values }: { values: number[] }) { return <span className="pulse-rail" aria-label="Conversation activity">{values.map((v, i) => <i key={i} style={{ height: `${v * 2}px` }} />)}</span>; }
-function DetailSection({ label, children }: { label: string; children: React.ReactNode }) { return <section className="detail-section"><h3>{label}</h3>{children}</section>; }
-function CommandPalette({ onClose, onFrequency, onSelect }: { onClose: () => void; onFrequency: (frequency: Frequency) => void; onSelect: (label: string) => void }) { const [query, setQuery] = useState(""); const input = useRef<HTMLInputElement>(null); useEffect(() => input.current?.focus(), []); const actions = [{ label: "New conversation", icon: "chat" as IconName }, { label: "Create a group", icon: "users" as IconName }, { label: "Open appearance studio", icon: "palette" as IconName }, { label: "Settings", icon: "settings" as IconName }].filter(a => a.label.toLowerCase().includes(query.toLowerCase())); return <div className="palette-scrim" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={e => e.stopPropagation()}><div className="command-input"><Icon name="search" /><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search or run a command" /><kbd>ESC</kbd></div><p className="command-label">QUICK ACTIONS</p>{actions.map(action => <button key={action.label} onClick={() => onSelect(action.label)}><Icon name={action.icon} /><span>{action.label}</span><Icon name="arrow" size={16} /></button>)}<p className="command-label">FREQUENCIES</p><div className="frequency-options">{frequencies.map(f => <button onClick={() => onFrequency(f)} key={f}><span className={`frequency-swatch ${f}`} />{f[0].toUpperCase() + f.slice(1)}</button>)}</div></section></div>; }
+function RailButton({ icon, label, active = false }: { icon: IconName; label: string; active?: boolean }) { 
+  return <button className={`rail-button ${active ? "active" : ""}`} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={icon} /><span>{label}</span></button>; 
+}
+
+function DetailSection({ label, children }: { label: string; children: React.ReactNode }) { 
+  return <section className="detail-section"><h3>{label}</h3>{children}</section>; 
+}
+
+function CommandPalette({ onClose, onFrequency, onSelect }: { onClose: () => void; onFrequency: (frequency: Frequency) => void; onSelect: (label: string) => void }) { 
+  const [query, setQuery] = useState(""); 
+  const input = useRef<HTMLInputElement>(null); 
+  useEffect(() => input.current?.focus(), []); 
+  const actions = [{ label: "New conversation", icon: "chat" as IconName }, { label: "Create a group", icon: "users" as IconName }, { label: "Open appearance studio", icon: "palette" as IconName }, { label: "Settings", icon: "settings" as IconName }].filter(a => a.label.toLowerCase().includes(query.toLowerCase())); 
+  return <div className="palette-scrim" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={e => e.stopPropagation()}><div className="command-input"><Icon name="search" /><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search or run a command" /><kbd>ESC</kbd></div><p className="command-label">QUICK ACTIONS</p>{actions.map(action => <button key={action.label} onClick={() => onSelect(action.label)}><Icon name={action.icon} /><span>{action.label}</span><Icon name="arrow" size={16} /></button>)}<p className="command-label">FREQUENCIES</p><div className="frequency-options">{frequencies.map(f => <button onClick={() => onFrequency(f)} key={f}><span className={`frequency-swatch ${f}`} />{f[0].toUpperCase() + f.slice(1)}</button>)}</div></section></div>; 
+}
