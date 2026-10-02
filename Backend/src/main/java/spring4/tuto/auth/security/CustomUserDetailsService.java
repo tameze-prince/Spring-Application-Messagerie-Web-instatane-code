@@ -19,21 +19,24 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
-        User user = userRepository.findByEmail(usernameOrEmail)
-                .orElseGet(() -> userRepository.findByUsername(usernameOrEmail)
-                        .orElseThrow(() -> new UsernameNotFoundException("User not found: " + usernameOrEmail)));
+        String normalized = usernameOrEmail == null ? "" : usernameOrEmail.trim();
 
-        return new org.springframework.security.core.userdetails.User(
-                user.getId().toString(),
-                user.getPasswordHash(),
-                Collections.emptyList()
-        );
+        User user = userRepository.findByEmailIgnoreCase(normalized)
+                .orElseGet(() -> userRepository.findByUsernameIgnoreCase(normalized)
+                        .orElseThrow(() -> new UsernameNotFoundException("Invalid username or password")));
+
+        return toUserDetails(user);
     }
 
     public UserDetails loadUserById(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userId));
+                .filter(existing -> !existing.isDeleted())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
+        return toUserDetails(user);
+    }
+
+    private UserDetails toUserDetails(User user) {
         return new org.springframework.security.core.userdetails.User(
                 user.getId().toString(),
                 user.getPasswordHash(),

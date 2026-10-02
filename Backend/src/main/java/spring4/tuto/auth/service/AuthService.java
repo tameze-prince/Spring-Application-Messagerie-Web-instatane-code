@@ -24,6 +24,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -38,26 +39,28 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
+        String username = normalizeUsername(request.getUsername());
+        String email = normalizeEmail(request.getEmail());
+
+        if (userRepository.existsByUsernameIgnoreCase(username)) {
             throw new BadRequestException("Username already taken");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new BadRequestException("Email already in use");
         }
 
         User user = User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
+                .username(username)
+                .email(email)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName())
+                .firstName(normalizeOptional(request.getFirstName()))
+                .lastName(normalizeOptional(request.getLastName()))
                 .status("OFFLINE")
                 .emailVerified(false)
                 .build();
 
         user = userRepository.save(user);
 
-        // Initialize default notification preferences
         NotificationPreference pref = NotificationPreference.builder()
                 .user(user)
                 .messageNotifications(true)
@@ -69,26 +72,18 @@ public class AuthService {
                 .build();
         preferenceRepository.save(pref);
 
-        String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getUsername(), user.getEmail());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
-
-        saveSession(user, refreshToken);
-
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .tokenType("Bearer")
-                .user(UserDto.fromEntity(user))
-                .build();
+        return createAuthResponse(user);
     }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getLogin())
-                .orElseGet(() -> userRepository.findByUsername(request.getLogin())
+        String login = request.getLogin() == null ? "" : request.getLogin().trim();
+
+        User user = userRepository.findByEmailIgnoreCase(login)
+                .orElseGet(() -> userRepository.findByUsernameIgnoreCase(login)
                         .orElseThrow(() -> new BadRequestException("Invalid email/username or password")));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        if (user.isDeleted() || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new BadRequestException("Invalid email/username or password");
         }
 
@@ -96,6 +91,72 @@ public class AuthService {
         user.setLastSeenAt(Instant.now());
         userRepository.save(user);
 
+        return createAuthResponse(user);
+    }
+
+    @Transactional
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        String refreshToken = request.getRefreshToken();
+
+        if (!jwtTokenProvider.isRefreshToken(refreshToken)) {
+            throw new BadRequestException("Invalid or expired refresh token");
+        }
+
+        UUID userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
+        User user = userRepository.findById(userId)
+                .filter(existing -> !existing.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        String hash = hashToken(refreshToken);
+        UserSession session = sessionRepository.findByRefreshTokenHash(hash)
+                .orElseThrow(() -> new BadRequestException("Session revoked or invalid"));
+
+        if (!user.getId().equals(session.getUser().getId())) {
+            throw new BadRequestException("Session revoked or invalid");
+        }
+
+        if (session.isExpired() || session.isRevoked()) {
+            throw new BadRequestException("Session expired or revoked");
+        }
+
+        session.setRevokedAt(Instant.now());
+        sessionRepository.save(session);
+
+        return createAuthResponse(user);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        if (!jwtTokenProvider.isRefreshToken(refreshToken)) {
+            return;
+        }
+
+        String hash = hashToken(refreshToken);
+        sessionRepository.findByRefreshTokenHash(hash).ifPresent(session -> {
+            if (!session.isRevoked()) {
+                session.setRevokedAt(Instant.now());
+                sessionRepository.save(session);
+            }
+        });
+    }
+
+    @Transactional
+    public int logoutAll(UUID userId) {
+        int revoked = 0;
+        Instant now = Instant.now();
+
+        for (UserSession session : sessionRepository.findByUserIdAndRevokedAtIsNull(userId)) {
+            if (!session.isExpired()) {
+                session.setRevokedAt(now);
+                revoked++;
+            }
+        }
+
+        sessionRepository.flush();
+        return revoked;
+    }
+
+    private AuthResponse createAuthResponse(User user) {
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getUsername(), user.getEmail());
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
 
@@ -109,61 +170,29 @@ public class AuthService {
                 .build();
     }
 
-    @Transactional
-    public AuthResponse refreshToken(RefreshTokenRequest request) {
-        if (!jwtTokenProvider.validateToken(request.getRefreshToken())) {
-            throw new BadRequestException("Invalid or expired refresh token");
-        }
-
-        UUID userId = jwtTokenProvider.getUserIdFromToken(request.getRefreshToken());
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        String hash = hashToken(request.getRefreshToken());
-        UserSession session = sessionRepository.findByRefreshTokenHash(hash)
-                .orElseThrow(() -> new BadRequestException("Session revoked or invalid"));
-
-        if (session.isExpired() || session.isRevoked()) {
-            throw new BadRequestException("Session expired or revoked");
-        }
-
-        String newAccessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getUsername(), user.getEmail());
-        String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
-
-        session.setRevokedAt(Instant.now());
-        sessionRepository.save(session);
-
-        saveSession(user, newRefreshToken);
-
-        return AuthResponse.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(newRefreshToken)
-                .tokenType("Bearer")
-                .user(UserDto.fromEntity(user))
-                .build();
-    }
-
-    @Transactional
-    public void logout(String refreshToken) {
-        if (jwtTokenProvider.validateToken(refreshToken)) {
-            String hash = hashToken(refreshToken);
-            sessionRepository.findByRefreshTokenHash(hash).ifPresent(session -> {
-                session.setRevokedAt(Instant.now());
-                sessionRepository.save(session);
-            });
-        }
-    }
-
     private void saveSession(User user, String refreshToken) {
+        Instant now = Instant.now();
         UserSession session = UserSession.builder()
                 .user(user)
                 .refreshTokenHash(hashToken(refreshToken))
                 .deviceName("Web Client")
                 .deviceType("WEB")
-                .expiresAt(Instant.now().plusMillis(604800000L)) // 7 days
-                .lastActiveAt(Instant.now())
+                .expiresAt(now.plusMillis(jwtTokenProvider.getRefreshTokenExpirationMs()))
+                .lastActiveAt(now)
                 .build();
         sessionRepository.save(session);
+    }
+
+    private String normalizeUsername(String value) {
+        return value.trim();
+    }
+
+    private String normalizeEmail(String value) {
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeOptional(String value) {
+        return value == null ? null : value.trim();
     }
 
     private String hashToken(String token) {
@@ -172,7 +201,7 @@ public class AuthService {
             byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("Error hashing token", e);
+            throw new IllegalStateException("Unable to hash refresh token", e);
         }
     }
 }

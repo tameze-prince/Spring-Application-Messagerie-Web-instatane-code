@@ -1,15 +1,16 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { ws } from "@/lib/ws/client";
 import { useAuth } from "@/lib/context/AuthContext";
 
 type MessageListener = (data: unknown) => void;
 type TypingListener = (data: { conversationId: string; userId: string; username: string }) => void;
 
+const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080/ws";
+
 export function useWebSocket() {
   const { accessToken, isAuthenticated } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
 
-  // Initialize WebSocket connection
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
       ws.disconnect();
@@ -17,42 +18,32 @@ export function useWebSocket() {
       return;
     }
 
-    ws.connect("ws://localhost:8080/ws", accessToken);
+    ws.connect(wsUrl, accessToken);
 
-    const checkConnection = setInterval(() => {
+    const checkConnection = window.setInterval(() => {
       setIsConnected(ws.isConnected);
-    }, 1000);
+    }, 500);
 
-    // Listen for connection status via any message
     const offAll = ws.on("*", () => {
-      setIsConnected(true);
+      setIsConnected(ws.isConnected);
     });
 
     return () => {
-      clearInterval(checkConnection);
+      window.clearInterval(checkConnection);
       offAll();
     };
-  }, [isAuthenticated, accessToken]);
+  }, [accessToken, isAuthenticated]);
 
   const onMessageCreated = useCallback((listener: MessageListener) => {
-    ws.on("message.created", listener);
-    return () => {
-      ws.off("message.created", listener);
-    };
+    return ws.on("message.created", listener);
   }, []);
 
   const onTypingStarted = useCallback((listener: TypingListener) => {
-    ws.on("typing.started", listener as MessageListener);
-    return () => {
-      ws.off("typing.started", listener as MessageListener);
-    };
+    return ws.on("typing.started", listener as MessageListener);
   }, []);
 
   const onTypingStopped = useCallback((listener: TypingListener) => {
-    ws.on("typing.stopped", listener as MessageListener);
-    return () => {
-      ws.off("typing.stopped", listener as MessageListener);
-    };
+    return ws.on("typing.stopped", listener as MessageListener);
   }, []);
 
   const sendMessage = useCallback((conversationId: string, content: string, replyToId?: string) => {
@@ -64,12 +55,12 @@ export function useWebSocket() {
     });
   }, []);
 
-  const sendTypingStart = useCallback((conversationId: string) => {
-    ws.typingStart(conversationId, "", "");
+  const sendTypingStart = useCallback((conversationId: string, userId = "", username = "") => {
+    ws.typingStart(conversationId, userId, username);
   }, []);
 
-  const sendTypingStop = useCallback((conversationId: string) => {
-    ws.typingStop(conversationId, "", "");
+  const sendTypingStop = useCallback((conversationId: string, userId = "", username = "") => {
+    ws.typingStop(conversationId, userId, username);
   }, []);
 
   return {
