@@ -13,48 +13,100 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import spring4.tuto.auth.security.CustomUserDetailsService;
 import spring4.tuto.auth.security.JwtTokenProvider;
+import spring4.tuto.conversation.repository.ConversationMemberRepository;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 @RequiredArgsConstructor
 public class WsChannelInterceptor implements ChannelInterceptor {
 
+    private static final Pattern CONVERSATION_TOPIC =
+            Pattern.compile("^/topic/conversations/([0-9a-fA-F-]{36})$");
+
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final ConversationMemberRepository memberRepository;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+        StompHeaderAccessor accessor =
+                MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-        if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
-            List<String> authorization = accessor.getNativeHeader("Authorization");
-            String token = null;
+        if (accessor == null || accessor.getCommand() == null) {
+            return message;
+        }
 
-            if (authorization != null && !authorization.isEmpty()) {
-                String bearerToken = authorization.get(0);
-                if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-                    token = bearerToken.substring(7).trim();
-                }
-            }
-
-            if (token == null) {
-                List<String> tokenHeader = accessor.getNativeHeader("token");
-                if (tokenHeader != null && !tokenHeader.isEmpty()) {
-                    token = tokenHeader.get(0);
-                }
-            }
-
-            if (StringUtils.hasText(token) && jwtTokenProvider.isAccessToken(token)) {
-                UUID userId = jwtTokenProvider.getUserIdFromToken(token);
-                UserDetails userDetails = userDetailsService.loadUserById(userId);
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-                accessor.setUser(authentication);
-            }
+        if (StompCommand.CONNECT.equals(accessor.getCommand())) {
+            authenticateConnect(accessor);
+        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            authorizeSubscription(accessor);
         }
 
         return message;
+    }
+
+    private void authenticateConnect(StompHeaderAccessor accessor) {
+        String token = extractAccessToken(accessor);
+
+        if (!StringUtils.hasText(token) || !jwtTokenProvider.isAccessToken(token)) {
+            throw new IllegalArgumentException("Authentication required");
+        }
+
+        UUID userId = jwtTokenProvider.getUserIdFromToken(token);
+        UserDetails userDetails = userDetailsService.loadUserById(userId);
+
+        accessor.setUser(new UsernamePasswordAuthenticationToken(
+                userDetails,
+                null,
+                userDetails.getAuthorities()
+        ));
+    }
+
+    private void authorizeSubscription(StompHeaderAccessor accessor) {
+        if (accessor.getUser() == null) {
+            throw new IllegalArgumentException("Authentication required");
+        }
+
+        String destination = accessor.getDestination();
+        if (!StringUtils.hasText(destination)) {
+            throw new IllegalArgumentException("Subscription destination is required");
+        }
+
+        Matcher matcher = CONVERSATION_TOPIC.matcher(destination);
+        if (!matcher.matches()) {
+            return;
+        }
+
+        UUID conversationId = UUID.fromString(matcher.group(1));
+        UUID userId = UUID.fromString(accessor.getUser().getName());
+
+        if (!memberRepository.existsById_ConversationIdAndId_UserId(conversationId, userId)) {
+            throw new IllegalArgumentException("Access denied to conversation");
+        }
+    }
+
+    private String extractAccessToken(StompHeaderAccessor accessor) {
+        List<String> authorization = accessor.getNativeHeader("Authorization");
+        if (authorization != null && !authorization.isEmpty()) {
+            String bearer = authorization.get(0);
+            if (StringUtils.hasText(bearer) && bearer.startsWith("Bearer ")) {
+                String token = bearer.substring(7).trim();
+                if (StringUtils.hasText(token)) {
+                    return token;
+                }
+            }
+        }
+
+        List<String> tokenHeaders = accessor.getNativeHeader("token");
+        if (tokenHeaders != null && !tokenHeaders.isEmpty()) {
+            String token = tokenHeaders.get(0);
+            return StringUtils.hasText(token) ? token.trim() : null;
+        }
+
+        return null;
     }
 }
