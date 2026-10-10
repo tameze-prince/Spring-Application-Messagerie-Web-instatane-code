@@ -14,15 +14,23 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-    credentials: "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+      credentials: "include",
+    });
+  } catch {
+    throw new ApiError(
+      0,
+      "Unable to reach the API. Check the backend URL and cross-origin access configuration.",
+    );
+  }
 
   if (!response.ok) {
     const raw = await response.text();
