@@ -52,6 +52,12 @@ public class MessageService {
 
     @Transactional(readOnly = true)
     public List<MessageDto> getMessagesForConversation(UUID conversationId, UUID userId, int page, int size) {
+        if (page < 0) {
+            throw new BadRequestException("Page index must be zero or greater");
+        }
+        if (size < 1 || size > 100) {
+            throw new BadRequestException("Page size must be between 1 and 100");
+        }
         if (!memberRepository.existsById_ConversationIdAndId_UserId(conversationId, userId)) {
             throw new BadRequestException("Access denied to conversation messages");
         }
@@ -136,19 +142,31 @@ public class MessageService {
         messageRepository.save(msg);
     }
 
+    private String validateReaction(String reaction) {
+        if (reaction == null || reaction.isBlank()) {
+            throw new BadRequestException("Reaction cannot be empty");
+        }
+        String normalized = reaction.trim();
+        if (normalized.length() > 32) {
+            throw new BadRequestException("Reaction must not exceed 32 characters");
+        }
+        return normalized;
+    }
+
     @Transactional
     public void addReaction(UUID messageId, UUID userId, String reactionStr) {
+        String validatedReaction = validateReaction(reactionStr);
         Message msg = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ResourceNotFoundException("Message not found"));
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Optional<MessageReaction> existing = reactionRepository.findByMessageIdAndUserIdAndReaction(messageId, userId, reactionStr);
+        Optional<MessageReaction> existing = reactionRepository.findByMessageIdAndUserIdAndReaction(messageId, userId, validatedReaction);
         if (existing.isEmpty()) {
             MessageReaction reaction = MessageReaction.builder()
                     .message(msg)
                     .user(user)
-                    .reaction(reactionStr)
+                    .reaction(validatedReaction)
                     .build();
             reactionRepository.save(reaction);
         }
@@ -156,6 +174,7 @@ public class MessageService {
 
     @Transactional
     public void removeReaction(UUID messageId, UUID userId, String reactionStr) {
-        reactionRepository.deleteByMessageIdAndUserIdAndReaction(messageId, userId, reactionStr);
+        String validatedReaction = validateReaction(reactionStr);
+        reactionRepository.deleteByMessageIdAndUserIdAndReaction(messageId, userId, validatedReaction);
     }
 }
