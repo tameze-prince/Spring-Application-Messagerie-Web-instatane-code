@@ -102,7 +102,7 @@ class MessageServiceTest {
     @Test
     void editMessageRejectsBlankBodiesBeforeLoadingMessage() {
         assertThrows(BadRequestException.class, () ->
-                messageService.editMessage(UUID.randomUUID(), UUID.randomUUID(), "\\n  "));
+                messageService.editMessage(UUID.randomUUID(), UUID.randomUUID(), "   "));
 
         verifyNoInteractions(messageRepository, reactionRepository, conversationRepository, memberRepository, userRepository);
     }
