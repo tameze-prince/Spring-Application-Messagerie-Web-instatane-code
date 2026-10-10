@@ -38,14 +38,16 @@ public class MessageService {
     private final UserRepository userRepository;
 
     private String validateMessageBody(String body) {
-        if (body == null || body.isBlank()) {
+        if (body == null) {
             throw new BadRequestException("Message cannot be empty");
         }
-        String normalized = body.trim();
-        if (normalized.length() > MAX_MESSAGE_LENGTH) {
+        if (body.length() > MAX_MESSAGE_LENGTH) {
             throw new BadRequestException("Message must not exceed " + MAX_MESSAGE_LENGTH + " characters");
         }
-        return normalized;
+        if (body.isBlank()) {
+            throw new BadRequestException("Message cannot be empty");
+        }
+        return body.trim();
     }
 
     @Transactional(readOnly = true)
