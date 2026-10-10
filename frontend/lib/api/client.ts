@@ -12,6 +12,77 @@ export class ApiError extends Error {
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+const CONTROL_CHAR_PATTERN = /[\\u0000-\\u001F\\u007F-\\u009F]/;
+
+function invalidInput(message: string): never {
+  throw new ApiError(400, message);
+}
+
+function validateRequiredText(value: string, label: string, minLength: number, maxLength: number): void {
+  if (!value.trim()) invalidInput(`${label} is required.`);
+  if (value.length < minLength || value.length > maxLength) {
+    invalidInput(`${label} must be between ${minLength} and ${maxLength} characters.`);
+  }
+  if (CONTROL_CHAR_PATTERN.test(value)) invalidInput(`${label} contains invalid characters.`);
+}
+
+function validateOptionalText(value: string | undefined, label: string, maxLength: number): void {
+  if (value === undefined) return;
+  if (value.length > maxLength) invalidInput(`${label} must not exceed ${maxLength} characters.`);
+  if (CONTROL_CHAR_PATTERN.test(value)) invalidInput(`${label} contains invalid characters.`);
+}
+
+function validateUuid(value: string | undefined, label: string, required = false): void {
+  if (value === undefined) {
+    if (required) invalidInput(`${label} is required.`);
+    return;
+  }
+  if (!UUID_PATTERN.test(value)) invalidInput(`${label} must be a valid UUID.`);
+}
+
+function validateGroupPayload(data: { name?: string; description?: string; avatarFileId?: string; maxMembers?: number; joinPolicy?: string }, required: boolean): void {
+  if (data.name !== undefined) validateRequiredText(data.name, "Group name", 1, 80);
+  else if (required) invalidInput("Group name is required.");
+  validateOptionalText(data.description, "Group description", 500);
+  validateUuid(data.avatarFileId, "Avatar file ID");
+  if (data.maxMembers !== undefined && (!Number.isInteger(data.maxMembers) || data.maxMembers < 2 || data.maxMembers > 500)) {
+    invalidInput("Group size must be between 2 and 500 members.");
+  }
+  if (data.joinPolicy !== undefined && !["EVERYONE", "ADMINS_ONLY"].includes(data.joinPolicy)) {
+    invalidInput("Join policy must be EVERYONE or ADMINS_ONLY.");
+  }
+}
+
+function validateChannelPayload(data: { name?: string; username?: string; description?: string; avatarFileId?: string; visibility?: string; postPermission?: string }, required: boolean): void {
+  if (data.name !== undefined) validateRequiredText(data.name, "Channel name", 1, 80);
+  else if (required) invalidInput("Channel name is required.");
+  if (data.username !== undefined) {
+    if (data.username.length < 3 || data.username.length > 50 || !USERNAME_PATTERN.test(data.username)) {
+      invalidInput("Channel username must be 3–50 characters using letters, numbers, dots, underscores or hyphens.");
+    }
+  } else if (required) invalidInput("Channel username is required.");
+  validateOptionalText(data.description, "Channel description", 500);
+  validateUuid(data.avatarFileId, "Avatar file ID");
+  if (data.visibility !== undefined && !["PUBLIC", "PRIVATE"].includes(data.visibility)) {
+    invalidInput("Visibility must be PUBLIC or PRIVATE.");
+  }
+  if (data.postPermission !== undefined && !["EVERYONE", "ADMINS_ONLY"].includes(data.postPermission)) {
+    invalidInput("Post permission must be EVERYONE or ADMINS_ONLY.");
+  }
+}
+
+function validateMessageBody(body: string): void {
+  if (!body.trim()) invalidInput("Message cannot be empty.");
+  if (body.length > 4000) invalidInput("Message must not exceed 4000 characters.");
+}
+
+function validateReaction(reaction: string): void {
+  if (!reaction.trim()) invalidInput("Reaction cannot be empty.");
+  if (reaction.trim().length > 32) invalidInput("Reaction must not exceed 32 characters.");
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
   let response: Response;
