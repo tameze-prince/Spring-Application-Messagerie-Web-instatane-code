@@ -1,5 +1,8 @@
 package spring4.tuto.channel.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -69,11 +72,23 @@ public class ChannelDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class CreateChannelRequest {
+        @Size(min = 1, max = 80, message = "Channel name must be between 1 and 80 characters")
         private String name;
+
+        @Size(min = 3, max = 50, message = "Channel username must be between 3 and 50 characters")
+        @Pattern(regexp = "^[A-Za-z0-9._-]+$", message = "Channel username may contain only letters, numbers, dots, underscores and hyphens")
         private String username;
+
+        @Size(max = 500, message = "Channel description must not exceed 500 characters")
         private String description;
+
+        @Pattern(regexp = "^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", message = "Avatar file ID must be a valid UUID")
         private String avatarFileId;
+
+        @Pattern(regexp = "^(PUBLIC|PRIVATE)$", message = "Visibility must be PUBLIC or PRIVATE")
         private String visibility;
+
+        @Pattern(regexp = "^(EVERYONE|ADMINS_ONLY)$", message = "Post permission must be EVERYONE or ADMINS_ONLY")
         private String postPermission;
     }
 
