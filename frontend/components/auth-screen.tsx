@@ -193,58 +193,72 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
           <p className="auth-copy">{content[mode].copy}</p>
           <form onSubmit={submit} noValidate>
             {(mode === "login" || mode === "forgot") && (
-              <label>
-                {mode === "login" ? "Email or username" : "Email address"}
-                <input
-                  name={mode === "login" ? "login" : "email"}
-                  type={mode === "login" ? "text" : "email"}
-                  autoComplete={mode === "login" ? "username" : "email"}
-                  maxLength={MAX_EMAIL_LENGTH}
-                  placeholder={mode === "login" ? "you@example.com or username" : "you@example.com"}
-                  required
-                  aria-invalid={Boolean(fieldErrors[mode === "login" ? "login" : "email"])}
-                  aria-describedby={fieldErrors[mode === "login" ? "login" : "email"] ? `${mode === "login" ? "login" : "email"}-error` : undefined}
-                />
+              <div className="auth-field">
+                <label>
+                  {mode === "login" ? "Email or username" : "Email address"}
+                  <input
+                    name={mode === "login" ? "login" : "email"}
+                    type={mode === "login" ? "text" : "email"}
+                    autoComplete={mode === "login" ? "username" : "email"}
+                    maxLength={MAX_EMAIL_LENGTH}
+                    placeholder={mode === "login" ? "you@example.com or username" : "you@example.com"}
+                    required
+                    aria-invalid={Boolean(fieldErrors[mode === "login" ? "login" : "email"])}
+                    aria-describedby={fieldErrors[mode === "login" ? "login" : "email"] ? `${mode === "login" ? "login" : "email"}-error` : undefined}
+                  />
+                </label>
                 {renderFieldError(mode === "login" ? "login" : "email")}
-              </label>
+              </div>
             )}
 
             {mode === "register" && (
               <>
-                <label>
-                  Username
-                  <input name="username" type="text" autoComplete="username" minLength={3} maxLength={MAX_USERNAME_LENGTH} required aria-invalid={Boolean(fieldErrors.username)} aria-describedby={fieldErrors.username ? "username-error" : undefined} placeholder="alexmorgan" />
+                <div className="auth-field">
+                  <label>
+                    Username
+                    <input name="username" type="text" autoComplete="username" minLength={3} maxLength={MAX_USERNAME_LENGTH} required aria-invalid={Boolean(fieldErrors.username)} aria-describedby={fieldErrors.username ? "username-error" : undefined} placeholder="alexmorgan" />
+                  </label>
                   {renderFieldError("username")}
-                </label>
-                <label>
-                  Email address
-                  <input name="email" type="email" autoComplete="email" maxLength={MAX_EMAIL_LENGTH} required aria-invalid={Boolean(fieldErrors.email)} aria-describedby={fieldErrors.email ? "email-error" : undefined} placeholder="you@example.com" />
+                </div>
+                <div className="auth-field">
+                  <label>
+                    Email address
+                    <input name="email" type="email" autoComplete="email" maxLength={MAX_EMAIL_LENGTH} required aria-invalid={Boolean(fieldErrors.email)} aria-describedby={fieldErrors.email ? "email-error" : undefined} placeholder="you@example.com" />
+                  </label>
                   {renderFieldError("email")}
-                </label>
-                <label>
-                  Password
-                  <input name="password" type="password" autoComplete="new-password" minLength={8} maxLength={MAX_PASSWORD_LENGTH} required aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? "password-error" : undefined} placeholder="8 to 128 characters" />
+                </div>
+                <div className="auth-field">
+                  <label>
+                    Password
+                    <input name="password" type="password" autoComplete="new-password" minLength={8} maxLength={MAX_PASSWORD_LENGTH} required aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? "password-error" : undefined} placeholder="8 to 128 characters" />
+                  </label>
                   {renderFieldError("password")}
-                </label>
-                <label>
-                  First name <span className="field-optional">(optional)</span>
-                  <input name="firstName" type="text" autoComplete="given-name" maxLength={MAX_NAME_LENGTH} aria-invalid={Boolean(fieldErrors.firstName)} aria-describedby={fieldErrors.firstName ? "firstName-error" : undefined} placeholder="Alex" />
+                </div>
+                <div className="auth-field">
+                  <label>
+                    First name <span className="field-optional">(optional)</span>
+                    <input name="firstName" type="text" autoComplete="given-name" maxLength={MAX_NAME_LENGTH} aria-invalid={Boolean(fieldErrors.firstName)} aria-describedby={fieldErrors.firstName ? "firstName-error" : undefined} placeholder="Alex" />
+                  </label>
                   {renderFieldError("firstName")}
-                </label>
-                <label>
-                  Last name <span className="field-optional">(optional)</span>
-                  <input name="lastName" type="text" autoComplete="family-name" maxLength={MAX_NAME_LENGTH} aria-invalid={Boolean(fieldErrors.lastName)} aria-describedby={fieldErrors.lastName ? "lastName-error" : undefined} placeholder="Morgan" />
+                </div>
+                <div className="auth-field">
+                  <label>
+                    Last name <span className="field-optional">(optional)</span>
+                    <input name="lastName" type="text" autoComplete="family-name" maxLength={MAX_NAME_LENGTH} aria-invalid={Boolean(fieldErrors.lastName)} aria-describedby={fieldErrors.lastName ? "lastName-error" : undefined} placeholder="Morgan" />
+                  </label>
                   {renderFieldError("lastName")}
-                </label>
+                </div>
               </>
             )}
 
             {mode === "login" && (
-              <label>
-                Password
-                <input name="password" type="password" autoComplete="current-password" minLength={8} maxLength={MAX_PASSWORD_LENGTH} required aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? "password-error" : undefined} placeholder="Your password" />
+              <div className="auth-field">
+                <label>
+                  Password
+                  <input name="password" type="password" autoComplete="current-password" minLength={8} maxLength={MAX_PASSWORD_LENGTH} required aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? "password-error" : undefined} placeholder="Your password" />
+                </label>
                 {renderFieldError("password")}
-              </label>
+              </div>
             )}
 
             {mode === "verify" && (
