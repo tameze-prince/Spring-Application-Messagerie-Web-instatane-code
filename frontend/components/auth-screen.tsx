@@ -104,7 +104,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
 
       if (!username) nextErrors.username = "Username is required.";
       else if (username.length < 3 || username.length > MAX_USERNAME_LENGTH) nextErrors.username = "Username must be between 3 and 50 characters.";
-      else if (!USERNAME_PATTERN.test(username)) nextErrors.username = "Use only letters, numbers, dots, underscores and hyphens.";
+      else if (!USERNAME_PATTERN.test(username)) nextErrors.username = "Username may contain only letters, numbers, dots, underscores and hyphens";
 
       const emailError = validateEmail(email);
       if (emailError) nextErrors.email = emailError;
@@ -113,10 +113,10 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
       if (passwordError) nextErrors.password = passwordError;
 
       if (firstName.length > MAX_NAME_LENGTH) nextErrors.firstName = "First name must not exceed 80 characters.";
-      else if (/[\u0000-\u001F\u007F]/.test(firstName)) nextErrors.firstName = "First name contains invalid characters.";
+      else if (/[\u0000-\u001F\u007F-\u009F]/.test(firstName)) nextErrors.firstName = "First name contains invalid characters.";
 
       if (lastName.length > MAX_NAME_LENGTH) nextErrors.lastName = "Last name must not exceed 80 characters.";
-      else if (/[\u0000-\u001F\u007F]/.test(lastName)) nextErrors.lastName = "Last name contains invalid characters.";
+      else if (/[\u0000-\u001F\u007F-\u009F]/.test(lastName)) nextErrors.lastName = "Last name contains invalid characters.";
 
       if (Object.keys(nextErrors).length) {
         setFieldErrors(nextErrors);
