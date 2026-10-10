@@ -337,10 +337,28 @@ export type FileDto = { id: string; ownerId: string; storageProvider: string; st
 export type UploadUrlResponse = { fileId: string; uploadUrl: string; storageKey: string };
 
 export const fileApi = {
-  requestUploadUrl: (filename: string, mimeType: string, sizeBytes: number) => api<{ success: boolean; data: UploadUrlResponse }>("/files/upload-url", { method: "POST", body: JSON.stringify({ filename, mimeType, sizeBytes }) }),
-  completeUpload: (fileId: string, checksum: string) => api<{ success: boolean; data: FileDto }>(`/files/${fileId}/complete`, { method: "POST", body: JSON.stringify({ checksum }) }),
-  get: (fileId: string) => api<{ success: boolean; data: FileDto }>(`/files/${fileId}`),
-  delete: (fileId: string) => api<{ success: boolean; data: null }>(`/files/${fileId}`, { method: "DELETE" }),
+  requestUploadUrl: (filename: string, mimeType: string, sizeBytes: number) => {
+    validateRequiredText(filename, "Filename", 1, 255);
+    if (filename.includes("/") || filename.includes("\\\\")) invalidInput("Filename cannot contain path separators.");
+    validateRequiredText(mimeType, "MIME type", 1, 127);
+    if (!Number.isInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 50 * 1024 * 1024) {
+      invalidInput("File size must be between 1 byte and 50 MiB.");
+    }
+    return api<{ success: boolean; data: UploadUrlResponse }>("/files/upload-url", { method: "POST", body: JSON.stringify({ filename: filename.trim(), mimeType: mimeType.trim(), sizeBytes }) });
+  },
+  completeUpload: (fileId: string, checksum: string) => {
+    validateUuid(fileId, "File ID", true);
+    validateRequiredText(checksum, "Checksum", 1, 255);
+    return api<{ success: boolean; data: FileDto }>(`/files/${fileId}/complete`, { method: "POST", body: JSON.stringify({ checksum: checksum.trim() }) });
+  },
+  get: (fileId: string) => {
+    validateUuid(fileId, "File ID", true);
+    return api<{ success: boolean; data: FileDto }>(`/files/${fileId}`);
+  },
+  delete: (fileId: string) => {
+    validateUuid(fileId, "File ID", true);
+    return api<{ success: boolean; data: null }>(`/files/${fileId}`, { method: "DELETE" });
+  },
 };
 
 // Notifications
