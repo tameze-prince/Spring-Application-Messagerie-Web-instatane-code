@@ -29,11 +29,24 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MessageService {
 
+    private static final int MAX_MESSAGE_LENGTH = 4000;
+
     private final MessageRepository messageRepository;
     private final MessageReactionRepository reactionRepository;
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository memberRepository;
     private final UserRepository userRepository;
+
+    private String validateMessageBody(String body) {
+        if (body == null || body.isBlank()) {
+            throw new BadRequestException("Message cannot be empty");
+        }
+        String normalized = body.trim();
+        if (normalized.length() > MAX_MESSAGE_LENGTH) {
+            throw new BadRequestException("Message must not exceed " + MAX_MESSAGE_LENGTH + " characters");
+        }
+        return normalized;
+    }
 
     @Transactional(readOnly = true)
     public List<MessageDto> getMessagesForConversation(UUID conversationId, UUID userId, int page, int size) {
@@ -56,6 +69,7 @@ public class MessageService {
 
     @Transactional
     public MessageDto sendMessage(UUID conversationId, UUID senderId, String type, String body, UUID replyToMessageId) {
+        String validatedBody = validateMessageBody(body);
         if (!memberRepository.existsById_ConversationIdAndId_UserId(conversationId, senderId)) {
             throw new BadRequestException("Sender is not a member of conversation");
         }
@@ -67,7 +81,11 @@ public class MessageService {
 
         Message replyTo = null;
         if (replyToMessageId != null) {
-            replyTo = messageRepository.findById(replyToMessageId).orElse(null);
+            replyTo = messageRepository.findById(replyToMessageId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Reply message not found"));
+            if (replyTo.getConversation() == null || !conversationId.equals(replyTo.getConversation().getId())) {
+                throw new BadRequestException("Reply message must belong to the same conversation");
+            }
         }
 
         // Sequence number sequence per conversation
@@ -78,7 +96,7 @@ public class MessageService {
                 .conversation(conv)
                 .sender(sender)
                 .type(type != null ? type : "TEXT")
-                .body(body)
+                .body(validatedBody)
                 .replyToMessage(replyTo)
                 .sequenceNumber(newSeq)
                 .build();
@@ -89,6 +107,7 @@ public class MessageService {
 
     @Transactional
     public MessageDto editMessage(UUID messageId, UUID userId, String newBody) {
+        String validatedBody = validateMessageBody(newBody);
         Message msg = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ResourceNotFoundException("Message not found"));
 
@@ -96,7 +115,7 @@ public class MessageService {
             throw new BadRequestException("Cannot edit another user's message");
         }
 
-        msg.setBody(newBody);
+        msg.setBody(validatedBody);
         msg.setEditedAt(Instant.now());
         msg = messageRepository.save(msg);
         return MessageDto.fromEntity(msg);
