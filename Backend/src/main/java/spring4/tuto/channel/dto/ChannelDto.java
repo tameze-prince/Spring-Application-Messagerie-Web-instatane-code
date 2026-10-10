@@ -73,6 +73,7 @@ public class ChannelDto {
     @AllArgsConstructor
     public static class CreateChannelRequest {
         @Size(min = 1, max = 80, message = "Channel name must be between 1 and 80 characters")
+        @Pattern(regexp = "^(?=.*\\S)[^\\p{Cntrl}]+$", message = "Channel name must contain a non-whitespace character and no control characters")
         private String name;
 
         @Size(min = 3, max = 50, message = "Channel username must be between 3 and 50 characters")
@@ -80,6 +81,7 @@ public class ChannelDto {
         private String username;
 
         @Size(max = 500, message = "Channel description must not exceed 500 characters")
+        @Pattern(regexp = "^[^\\p{Cntrl}]*$", message = "Channel description contains invalid characters")
         private String description;
 
         @Pattern(regexp = "^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", message = "Avatar file ID must be a valid UUID")
