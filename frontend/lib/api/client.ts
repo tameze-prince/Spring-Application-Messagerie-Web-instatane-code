@@ -15,6 +15,51 @@ export class ApiError extends Error {
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/;
+const EMAIL_PATTERN = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+
+function validateEmail(email: string): void {
+  const normalized = email.trim();
+  if (!normalized || normalized.length > 255 || !EMAIL_PATTERN.test(normalized)) {
+    invalidInput("Enter a valid email address (maximum 255 characters).");
+  }
+}
+
+function validatePassword(password: string): void {
+  if (!password.trim()) invalidInput("Password is required.");
+  if (password.length < 8 || password.length > 128) {
+    invalidInput("Password must be between 8 and 128 characters.");
+  }
+}
+
+function validateRegistration(data: RegisterRequest): RegisterRequest {
+  validateRequiredText(data.username, "Username", 3, 50);
+  if (!USERNAME_PATTERN.test(data.username.trim())) {
+    invalidInput("Username may contain only letters, numbers, dots, underscores and hyphens.");
+  }
+  validateEmail(data.email);
+  validatePassword(data.password);
+  validateOptionalText(data.firstName, "First name", 80);
+  validateOptionalText(data.lastName, "Last name", 80);
+  return {
+    ...data,
+    username: data.username.trim(),
+    email: data.email.trim().toLowerCase(),
+    firstName: data.firstName?.trim() || undefined,
+    lastName: data.lastName?.trim() || undefined,
+  };
+}
+
+function validateLogin(data: LoginRequest): LoginRequest {
+  validateRequiredText(data.login, "Email or username", 1, 255);
+  validatePassword(data.password);
+  return { ...data, login: data.login.trim() };
+}
+
+function validateRefreshToken(refreshToken: string): string {
+  validateRequiredText(refreshToken, "Refresh token", 1, 4096);
+  return refreshToken.trim();
+}
+
 
 function invalidInput(message: string): never {
   throw new ApiError(400, message);
@@ -133,10 +178,10 @@ export type RefreshTokenRequest = { refreshToken: string };
 export type AuthResponse = { accessToken: string; refreshToken: string; tokenType: string; user: UserDto };
 
 export const authApi = {
-  register: (data: RegisterRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
-  login: (data: LoginRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
-  refresh: (data: RefreshTokenRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/refresh", { method: "POST", body: JSON.stringify(data) }),
-  logout: (refreshToken: string) => api<{ success: boolean; data: null }>("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken }) }),
+  register: (data: RegisterRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/register", { method: "POST", body: JSON.stringify(validateRegistration(data)) }),
+  login: (data: LoginRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/login", { method: "POST", body: JSON.stringify(validateLogin(data)) }),
+  refresh: (data: RefreshTokenRequest) => api<{ success: boolean; data: AuthResponse }>("/auth/refresh", { method: "POST", body: JSON.stringify({ refreshToken: validateRefreshToken(data.refreshToken) }) }),
+  logout: (refreshToken: string) => api<{ success: boolean; data: null }>("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: validateRefreshToken(refreshToken) }) }),
 };
 
 // Users
@@ -339,7 +384,7 @@ export type UploadUrlResponse = { fileId: string; uploadUrl: string; storageKey:
 export const fileApi = {
   requestUploadUrl: (filename: string, mimeType: string, sizeBytes: number) => {
     validateRequiredText(filename, "Filename", 1, 255);
-    if (filename.includes("/") || filename.includes("\\\\")) invalidInput("Filename cannot contain path separators.");
+    if (filename.includes("/") || filename.includes("\\")) invalidInput("Filename cannot contain path separators.");
     validateRequiredText(mimeType, "MIME type", 1, 127);
     if (!Number.isInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 50 * 1024 * 1024) {
       invalidInput("File size must be between 1 byte and 50 MiB.");
