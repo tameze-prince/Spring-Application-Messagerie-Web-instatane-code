@@ -32,8 +32,9 @@ function validatePassword(password: string): void {
 }
 
 function validateRegistration(data: RegisterRequest): RegisterRequest {
-  validateRequiredText(data.username, "Username", 3, 50);
-  if (!USERNAME_PATTERN.test(data.username.trim())) {
+  const username = data.username.trim();
+  validateRequiredText(username, "Username", 3, 50);
+  if (!USERNAME_PATTERN.test(username)) {
     invalidInput("Username may contain only letters, numbers, dots, underscores and hyphens.");
   }
   validateEmail(data.email);
@@ -42,7 +43,7 @@ function validateRegistration(data: RegisterRequest): RegisterRequest {
   validateOptionalText(data.lastName, "Last name", 80);
   return {
     ...data,
-    username: data.username.trim(),
+    username,
     email: data.email.trim().toLowerCase(),
     firstName: data.firstName?.trim() || undefined,
     lastName: data.lastName?.trim() || undefined,
@@ -50,9 +51,10 @@ function validateRegistration(data: RegisterRequest): RegisterRequest {
 }
 
 function validateLogin(data: LoginRequest): LoginRequest {
-  validateRequiredText(data.login, "Email or username", 1, 255);
+  const login = data.login.trim();
+  validateRequiredText(login, "Email or username", 1, 255);
   validatePassword(data.password);
-  return { ...data, login: data.login.trim() };
+  return { ...data, login };
 }
 
 function validateRefreshToken(refreshToken: string): string {
