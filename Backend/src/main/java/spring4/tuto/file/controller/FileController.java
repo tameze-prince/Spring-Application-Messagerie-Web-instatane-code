@@ -1,7 +1,11 @@
 package spring4.tuto.file.controller;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +33,7 @@ public class FileController {
     @PostMapping("/upload-url")
     public ResponseEntity<ApiResponse<FileService.UploadUrlResponse>> requestUploadUrl(
             @AuthenticationPrincipal UserDetails userDetails,
-            @RequestBody UploadUrlRequest request) {
+            @Valid @RequestBody UploadUrlRequest request) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         FileService.UploadUrlResponse response = fileService.requestUploadUrl(
                 userId, request.getFilename(), request.getMimeType(), request.getSizeBytes()
@@ -40,7 +44,7 @@ public class FileController {
     @PostMapping("/{id}/complete")
     public ResponseEntity<ApiResponse<FileDto>> completeUpload(
             @PathVariable UUID id,
-            @RequestBody CompleteUploadRequest request) {
+            @Valid @RequestBody CompleteUploadRequest request) {
         FileDto fileDto = fileService.completeUpload(id, request.getChecksum());
         return ResponseEntity.ok(ApiResponse.success("File upload marked as completed", fileDto));
     }
@@ -53,16 +57,24 @@ public class FileController {
 
     @Data
     public static class UploadUrlRequest {
-        @NotBlank
+        @NotBlank(message = "Filename is required")
+        @Size(max = 255, message = "Filename must not exceed 255 characters")
         private String filename;
-        @NotBlank
+
+        @NotBlank(message = "MIME type is required")
+        @Size(max = 127, message = "MIME type must not exceed 127 characters")
         private String mimeType;
-        @NotNull
+
+        @NotNull(message = "File size is required")
+        @Positive(message = "File size must be positive")
+        @Max(value = 52428800, message = "File size must not exceed 50 MiB")
         private Long sizeBytes;
     }
 
     @Data
     public static class CompleteUploadRequest {
+        @NotBlank(message = "Checksum is required")
+        @Size(max = 255, message = "Checksum must not exceed 255 characters")
         private String checksum;
     }
 }
