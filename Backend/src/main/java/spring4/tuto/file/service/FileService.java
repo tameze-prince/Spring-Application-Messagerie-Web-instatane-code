@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import spring4.tuto.common.exception.BadRequestException;
 import spring4.tuto.common.exception.ResourceNotFoundException;
 import spring4.tuto.file.domain.FileEntity;
 import spring4.tuto.file.dto.FileDto;
@@ -25,8 +26,27 @@ public class FileService {
     private final UserRepository userRepository;
     private final S3StorageService s3StorageService;
 
+    private static final long MAX_UPLOAD_SIZE_BYTES = 50L * 1024 * 1024;
+
+    private void validateUploadRequest(String filename, String mimeType, Long sizeBytes) {
+        if (filename == null || filename.isBlank() || filename.length() > 255) {
+            throw new BadRequestException("Filename is required and must not exceed 255 characters");
+        }
+        if (filename.contains("/") || filename.contains("\\") || filename.chars().anyMatch(Character::isISOControl)) {
+            throw new BadRequestException("Filename contains invalid characters");
+        }
+        if (mimeType == null || mimeType.isBlank() || mimeType.length() > 127
+                || mimeType.chars().anyMatch(Character::isISOControl)) {
+            throw new BadRequestException("MIME type is required and must not exceed 127 characters");
+        }
+        if (sizeBytes == null || sizeBytes <= 0 || sizeBytes > MAX_UPLOAD_SIZE_BYTES) {
+            throw new BadRequestException("File size must be between 1 byte and 50 MiB");
+        }
+    }
+
     @Transactional
     public UploadUrlResponse requestUploadUrl(UUID userId, String filename, String mimeType, Long sizeBytes) {
+        validateUploadRequest(filename, mimeType, sizeBytes);
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
