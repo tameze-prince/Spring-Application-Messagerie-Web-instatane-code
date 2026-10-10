@@ -14,7 +14,7 @@ export class ApiError extends Error {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
-const CONTROL_CHAR_PATTERN = /[\\u0000-\\u001F\\u007F-\\u009F]/;
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/;
 
 function invalidInput(message: string): never {
   throw new ApiError(400, message);
@@ -145,7 +145,13 @@ export type UpdateProfileRequest = { firstName?: string; lastName?: string; bio?
 
 export const userApi = {
   me: () => api<{ success: boolean; data: UserDto }>("/users/me"),
-  updateProfile: (data: UpdateProfileRequest) => api<{ success: boolean; data: UserDto }>("/users/me", { method: "PATCH", body: JSON.stringify(data) }),
+  updateProfile: (data: UpdateProfileRequest) => {
+    validateOptionalText(data.firstName, "First name", 80);
+    validateOptionalText(data.lastName, "Last name", 80);
+    validateOptionalText(data.bio, "Bio", 500);
+    validateUuid(data.avatarFileId, "Avatar file ID");
+    return api<{ success: boolean; data: UserDto }>("/users/me", { method: "PATCH", body: JSON.stringify(data) });
+  },
   getById: (id: string) => api<{ success: boolean; data: UserDto }>(`/users/${id}`),
   search: (q: string) => {
     const normalizedQuery = q.trim();
@@ -178,7 +184,10 @@ export type CreatePrivateConversationRequest = { targetUserId: string };
 export const conversationApi = {
   list: () => api<{ success: boolean; data: ConversationDto[] }>("/conversations"),
   get: (id: string) => api<{ success: boolean; data: ConversationDto }>(`/conversations/${id}`),
-  createPrivate: (data: CreatePrivateConversationRequest) => api<{ success: boolean; data: ConversationDto }>("/conversations/private", { method: "POST", body: JSON.stringify(data) }),
+  createPrivate: (data: CreatePrivateConversationRequest) => {
+    validateUuid(data.targetUserId, "Target user ID", true);
+    return api<{ success: boolean; data: ConversationDto }>("/conversations/private", { method: "POST", body: JSON.stringify(data) });
+  },
 };
 
 // Messages
@@ -206,12 +215,30 @@ export type EditMessageRequest = { body: string };
 export type ReactionRequest = { reaction: string };
 
 export const messageApi = {
-  list: (conversationId: string, page = 0, size = 30) => api<{ success: boolean; data: MessageDto[] }>(`/conversations/${conversationId}/messages?page=${page}&size=${size}`),
-  send: (conversationId: string, data: SendMessageRequest) => api<{ success: boolean; data: MessageDto }>(`/conversations/${conversationId}/messages`, { method: "POST", body: JSON.stringify(data) }),
-  edit: (messageId: string, data: EditMessageRequest) => api<{ success: boolean; data: MessageDto }>(`/messages/${messageId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  list: (conversationId: string, page = 0, size = 30) => {
+    if (!Number.isInteger(page) || page < 0) invalidInput("Page index must be zero or greater.");
+    if (!Number.isInteger(size) || size < 1 || size > 100) invalidInput("Page size must be between 1 and 100.");
+    return api<{ success: boolean; data: MessageDto[] }>(`/conversations/${conversationId}/messages?page=${page}&size=${size}`);
+  },
+  send: (conversationId: string, data: SendMessageRequest) => {
+    validateMessageBody(data.body);
+    validateOptionalText(data.type, "Message type", 50);
+    validateUuid(data.replyToMessageId, "Reply message ID");
+    return api<{ success: boolean; data: MessageDto }>(`/conversations/${conversationId}/messages`, { method: "POST", body: JSON.stringify(data) });
+  },
+  edit: (messageId: string, data: EditMessageRequest) => {
+    validateMessageBody(data.body);
+    return api<{ success: boolean; data: MessageDto }>(`/messages/${messageId}`, { method: "PATCH", body: JSON.stringify(data) });
+  },
   delete: (messageId: string) => api<{ success: boolean; data: null }>(`/messages/${messageId}`, { method: "DELETE" }),
-  addReaction: (messageId: string, data: ReactionRequest) => api<{ success: boolean; data: null }>(`/messages/${messageId}/reaction`, { method: "POST", body: JSON.stringify(data) }),
-  removeReaction: (messageId: string, reaction: string) => api<{ success: boolean; data: null }>(`/messages/${messageId}/reaction?reaction=${encodeURIComponent(reaction)}`, { method: "DELETE" }),
+  addReaction: (messageId: string, data: ReactionRequest) => {
+    validateReaction(data.reaction);
+    return api<{ success: boolean; data: null }>(`/messages/${messageId}/reaction`, { method: "POST", body: JSON.stringify({ reaction: data.reaction.trim() }) });
+  },
+  removeReaction: (messageId: string, reaction: string) => {
+    validateReaction(reaction);
+    return api<{ success: boolean; data: null }>(`/messages/${messageId}/reaction?reaction=${encodeURIComponent(reaction.trim())}`, { method: "DELETE" });
+  },
 };
 
 // Groups
@@ -237,12 +264,23 @@ export type UpdateGroupRequest = { name?: string; description?: string; avatarFi
 export type AddMemberRequest = { userId: string };
 
 export const groupApi = {
-  create: (data: CreateGroupRequest) => api<{ success: boolean; data: GroupDto }>("/groups", { method: "POST", body: JSON.stringify(data) }),
+  create: (data: CreateGroupRequest) => {
+    validateGroupPayload(data, true);
+    if ((data.initialMemberIds?.length ?? 0) > 199) invalidInput("A group can include at most 199 initial members.");
+    data.initialMemberIds?.forEach((id) => validateUuid(id, "Initial member ID", true));
+    return api<{ success: boolean; data: GroupDto }>("/groups", { method: "POST", body: JSON.stringify(data) });
+  },
   get: (id: string) => api<{ success: boolean; data: GroupDto }>(`/groups/${id}`),
-  update: (id: string, data: UpdateGroupRequest) => api<{ success: boolean; data: GroupDto }>(`/groups/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  update: (id: string, data: UpdateGroupRequest) => {
+    validateGroupPayload(data, false);
+    return api<{ success: boolean; data: GroupDto }>(`/groups/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+  },
   delete: (id: string) => api<{ success: boolean; data: null }>(`/groups/${id}`, { method: "DELETE" }),
   getMembers: (id: string) => api<{ success: boolean; data: GroupMemberInfo[] }>(`/groups/${id}/members`),
-  addMember: (id: string, data: AddMemberRequest) => api<{ success: boolean; data: null }>(`/groups/${id}/members`, { method: "POST", body: JSON.stringify(data) }),
+  addMember: (id: string, data: AddMemberRequest) => {
+    validateUuid(data.userId, "User ID", true);
+    return api<{ success: boolean; data: null }>(`/groups/${id}/members`, { method: "POST", body: JSON.stringify(data) });
+  },
   removeMember: (id: string, userId: string) => api<{ success: boolean; data: null }>(`/groups/${id}/members/${userId}`, { method: "DELETE" }),
   promoteToAdmin: (id: string, userId: string) => api<{ success: boolean; data: null }>(`/groups/${id}/admins/${userId}`, { method: "POST" }),
   demoteFromAdmin: (id: string, userId: string) => api<{ success: boolean; data: null }>(`/groups/${id}/admins/${userId}`, { method: "DELETE" }),
@@ -271,11 +309,22 @@ export type CreateChannelRequest = { name: string; username: string; description
 export type UpdateChannelRequest = { name?: string; username?: string; description?: string; avatarFileId?: string; visibility?: string; postPermission?: string };
 
 export const channelApi = {
-  create: (data: CreateChannelRequest) => api<{ success: boolean; data: ChannelDto }>("/channels", { method: "POST", body: JSON.stringify(data) }),
+  create: (data: CreateChannelRequest) => {
+    validateChannelPayload(data, true);
+    return api<{ success: boolean; data: ChannelDto }>("/channels", { method: "POST", body: JSON.stringify(data) });
+  },
   get: (id: string) => api<{ success: boolean; data: ChannelDto }>(`/channels/${id}`),
-  getByUsername: (username: string) => api<{ success: boolean; data: ChannelDto }>(`/channels/username/${username}`),
+  getByUsername: (username: string) => {
+    if (username.length < 3 || username.length > 50 || !USERNAME_PATTERN.test(username)) {
+      invalidInput("Channel username must be 3–50 characters using letters, numbers, dots, underscores or hyphens.");
+    }
+    return api<{ success: boolean; data: ChannelDto }>(`/channels/username/${encodeURIComponent(username)}`);
+  },
   getPublic: () => api<{ success: boolean; data: ChannelDto[] }>("/channels/public"),
-  update: (id: string, data: UpdateChannelRequest) => api<{ success: boolean; data: ChannelDto }>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  update: (id: string, data: UpdateChannelRequest) => {
+    validateChannelPayload(data, false);
+    return api<{ success: boolean; data: ChannelDto }>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+  },
   delete: (id: string) => api<{ success: boolean; data: null }>(`/channels/${id}`, { method: "DELETE" }),
   getSubscribers: (id: string) => api<{ success: boolean; data: ChannelSubscriberInfo[] }>(`/channels/${id}/subscribers`),
   subscribe: (id: string) => api<{ success: boolean; data: null }>(`/channels/${id}/subscribe`, { method: "POST" }),
