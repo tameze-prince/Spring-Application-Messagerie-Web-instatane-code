@@ -52,7 +52,11 @@ class JwtTokenProviderTest {
     @Test
     void tamperedToken_isRejected() {
         String token = jwtTokenProvider.generateAccessToken(userId, "alice", "alice@example.com");
-        String tampered = token.substring(0, token.length() - 1) + "x";
+        String[] parts = token.split("\\.");
+        String signature = parts[2];
+        char replacement = signature.charAt(0) == 'A' ? 'B' : 'A';
+        parts[2] = replacement + signature.substring(1);
+        String tampered = String.join(".", parts);
 
         assertFalse(jwtTokenProvider.validateToken(tampered));
     }
