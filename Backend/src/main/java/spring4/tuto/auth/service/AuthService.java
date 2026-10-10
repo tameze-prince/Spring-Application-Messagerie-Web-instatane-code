@@ -192,7 +192,10 @@ public class AuthService {
     }
 
     private String normalizeOptional(String value) {
-        return value == null ? null : value.trim();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private String hashToken(String token) {
