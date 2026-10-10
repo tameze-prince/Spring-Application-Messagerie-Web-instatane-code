@@ -1,5 +1,8 @@
 package spring4.tuto.user.controller;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -38,7 +41,7 @@ public class UserController {
     @PatchMapping("/me")
     public ResponseEntity<ApiResponse<UserDto>> updateProfile(
             @AuthenticationPrincipal UserDetails userDetails,
-            @RequestBody UpdateProfileRequest request) {
+            @Valid @RequestBody UpdateProfileRequest request) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         UserDto updated = userService.updateProfile(userId, request.getFirstName(), request.getLastName(), request.getBio(), request.getAvatarFileId());
         return ResponseEntity.ok(ApiResponse.success("Profile updated successfully", updated));
@@ -76,9 +79,18 @@ public class UserController {
 
     @Data
     public static class UpdateProfileRequest {
+        @Size(max = 80, message = "First name must not exceed 80 characters")
+        @Pattern(regexp = "^[^\\p{Cntrl}]*$", message = "First name contains invalid characters")
         private String firstName;
+
+        @Size(max = 80, message = "Last name must not exceed 80 characters")
+        @Pattern(regexp = "^[^\\p{Cntrl}]*$", message = "Last name contains invalid characters")
         private String lastName;
+
+        @Size(max = 500, message = "Bio must not exceed 500 characters")
+        @Pattern(regexp = "^[^\\p{Cntrl}]*$", message = "Bio contains invalid characters")
         private String bio;
+
         private UUID avatarFileId;
     }
 }
