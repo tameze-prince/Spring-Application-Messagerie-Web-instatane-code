@@ -15,6 +15,7 @@ public class ApiResponse<T> {
     private boolean success;
     private String message;
     private T data;
+
     @Builder.Default
     private Instant timestamp = Instant.now();
 
@@ -38,6 +39,14 @@ public class ApiResponse<T> {
         return ApiResponse.<T>builder()
                 .success(false)
                 .message(message)
+                .build();
+    }
+
+    public static <T> ApiResponse<T> error(String message, T data) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .message(message)
+                .data(data)
                 .build();
     }
 }

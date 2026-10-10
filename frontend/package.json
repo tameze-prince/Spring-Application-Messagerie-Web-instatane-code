@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest",
+    "test": "vitest --exclude e2e/**",
     "test:ci": "vitest --run --coverage",
     "test:watch": "vitest --watch",
     "e2e": "playwright test"

@@ -3,6 +3,8 @@ package spring4.tuto.auth.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +15,8 @@ import spring4.tuto.auth.dto.RefreshTokenRequest;
 import spring4.tuto.auth.dto.RegisterRequest;
 import spring4.tuto.auth.service.AuthService;
 import spring4.tuto.common.dto.ApiResponse;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -43,5 +47,13 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> logout(@Valid @RequestBody RefreshTokenRequest request) {
         authService.logout(request.getRefreshToken());
         return ResponseEntity.ok(ApiResponse.success("Logged out successfully", null));
+    }
+
+    @PostMapping("/logout-all")
+    public ResponseEntity<ApiResponse<Void>> logoutAll(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        UUID userId = UUID.fromString(userDetails.getUsername());
+        int revoked = authService.logoutAll(userId);
+        return ResponseEntity.ok(ApiResponse.success("All active sessions revoked", null));
     }
 }

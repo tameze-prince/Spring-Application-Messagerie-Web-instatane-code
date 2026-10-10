@@ -1,5 +1,7 @@
 package spring4.tuto.conversation.controller;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -35,7 +37,7 @@ public class ConversationController {
     @PostMapping("/private")
     public ResponseEntity<ApiResponse<ConversationDto>> createPrivateConversation(
             @AuthenticationPrincipal UserDetails userDetails,
-            @RequestBody CreatePrivateConversationRequest request) {
+            @Valid @RequestBody CreatePrivateConversationRequest request) {
         UUID currentUserId = UUID.fromString(userDetails.getUsername());
         ConversationDto conv = conversationService.createOrGetPrivateConversation(currentUserId, request.getTargetUserId());
         return ResponseEntity.ok(ApiResponse.success("Private conversation ready", conv));
@@ -52,6 +54,7 @@ public class ConversationController {
 
     @Data
     public static class CreatePrivateConversationRequest {
+        @NotNull(message = "Target user ID is required")
         private UUID targetUserId;
     }
 }

@@ -1,5 +1,8 @@
 package spring4.tuto.message.controller;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -43,7 +46,7 @@ public class MessageController {
     public ResponseEntity<ApiResponse<MessageDto>> sendMessage(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable UUID id,
-            @RequestBody SendMessageRequest request) {
+            @Valid @RequestBody SendMessageRequest request) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         MessageDto msg = messageService.sendMessage(id, userId, request.getType(), request.getBody(), request.getReplyToMessageId());
         return ResponseEntity.ok(ApiResponse.success("Message sent", msg));
@@ -53,7 +56,7 @@ public class MessageController {
     public ResponseEntity<ApiResponse<MessageDto>> editMessage(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable UUID id,
-            @RequestBody EditMessageRequest request) {
+            @Valid @RequestBody EditMessageRequest request) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         MessageDto updated = messageService.editMessage(id, userId, request.getBody());
         return ResponseEntity.ok(ApiResponse.success("Message edited", updated));
@@ -72,7 +75,7 @@ public class MessageController {
     public ResponseEntity<ApiResponse<Void>> addReaction(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable UUID id,
-            @RequestBody ReactionRequest request) {
+            @Valid @RequestBody ReactionRequest request) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         messageService.addReaction(id, userId, request.getReaction());
         return ResponseEntity.ok(ApiResponse.success("Reaction added", null));
@@ -90,18 +93,26 @@ public class MessageController {
 
     @Data
     public static class SendMessageRequest {
+        @Size(max = 50, message = "Message type must not exceed 50 characters")
         private String type;
+
+        @NotBlank(message = "Message cannot be empty")
+        @Size(max = 4000, message = "Message must not exceed 4000 characters")
         private String body;
         private UUID replyToMessageId;
     }
 
     @Data
     public static class EditMessageRequest {
+        @NotBlank(message = "Message cannot be empty")
+        @Size(max = 4000, message = "Message must not exceed 4000 characters")
         private String body;
     }
 
     @Data
     public static class ReactionRequest {
+        @NotBlank(message = "Reaction cannot be empty")
+        @Size(max = 32, message = "Reaction must not exceed 32 characters")
         private String reaction;
     }
 }

@@ -30,7 +30,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
+            if (StringUtils.hasText(jwt) && jwtTokenProvider.isAccessToken(jwt)) {
                 UUID userId = jwtTokenProvider.getUserIdFromToken(jwt);
 
                 UserDetails userDetails = userDetailsService.loadUserById(userId);
@@ -42,7 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         } catch (Exception ex) {
-            logger.error("Could not set user authentication in security context", ex);
+            logger.debug("Could not authenticate request with JWT", ex);
         }
 
         filterChain.doFilter(request, response);
@@ -50,14 +50,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
+        if (!StringUtils.hasText(bearerToken)) {
+            return null;
         }
-        // Fallback for WebSocket query parameter ?token=xxx
-        String paramToken = request.getParameter("token");
-        if (StringUtils.hasText(paramToken)) {
-            return paramToken;
+
+        if (!bearerToken.startsWith("Bearer ")) {
+            return null;
         }
-        return null;
+
+        String token = bearerToken.substring(7).trim();
+        return StringUtils.hasText(token) ? token : null;
     }
 }

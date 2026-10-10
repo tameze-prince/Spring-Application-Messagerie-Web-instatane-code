@@ -15,11 +15,19 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmail(String email);
 
+    Optional<User> findByEmailIgnoreCase(String email);
+
     Optional<User> findByUsername(String username);
+
+    Optional<User> findByUsernameIgnoreCase(String username);
 
     boolean existsByEmail(String email);
 
+    boolean existsByEmailIgnoreCase(String email);
+
     boolean existsByUsername(String username);
+
+    boolean existsByUsernameIgnoreCase(String username);
 
     @Query(value = "SELECT * FROM users WHERE deleted_at IS NULL AND " +
             "(to_tsvector('english', coalesce(username, '') || ' ' || coalesce(first_name, '') || ' ' || coalesce(last_name, '')) @@ plainto_tsquery('english', :query) " +

@@ -1,0 +1,238 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  backend:
+    name: Backend • Maven + Testcontainers
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    env:
+      JWT_SECRET: ci-only-jwt-secret-change-me-01234567890123456789
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Run Maven verification
+        run: ./mvnw --batch-mode --no-transfer-progress verify
+
+      - name: Upload backend test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: backend-test-reports
+          path: Backend/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  frontend:
+    name: Frontend • Lint + Unit + Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8080/api/v1
+      NEXT_PUBLIC_WS_URL: ws://127.0.0.1:8080/ws
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test -- --run
+
+      - name: Production build
+        run: npm run build
+
+  e2e:
+    name: E2E • Full application smoke test
+    runs-on: ubuntu-latest
+    needs:
+      - backend
+      - frontend
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      JWT_SECRET: ci-only-jwt-secret-change-me-01234567890123456789
+      DB_URL: jdbc:postgresql://127.0.0.1:5432/tuto_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: tuto-uploads
+      S3_REGION: us-east-1
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8080/api/v1
+      NEXT_PUBLIC_WS_URL: ws://127.0.0.1:8080/ws
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Start PostgreSQL, Redis and MinIO
+        working-directory: Backend
+        run: docker compose -f docker-compose.dev.yml up -d
+
+      - name: Wait for infrastructure
+        working-directory: Backend
+        run: |
+          for i in {1..60}; do
+            postgres_ok=$(docker exec tuto-postgres pg_isready -U postgres -d tuto_db >/dev/null 2>&1 && echo yes || echo no)
+            redis_ok=$(docker exec tuto-redis redis-cli ping 2>/dev/null | grep -q PONG && echo yes || echo no)
+            minio_ok=$(curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 && echo yes || echo no)
+            if [ "$postgres_ok" = yes ] && [ "$redis_ok" = yes ] && [ "$minio_ok" = yes ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f docker-compose.dev.yml ps
+          exit 1
+
+      - name: Verify MinIO bucket configuration
+        working-directory: Backend
+        run: |
+          if grep -q "anonymous set download" docker-compose.dev.yml; then
+            echo "Public MinIO bucket configuration detected."
+            exit 1
+          fi
+
+      - name: Build backend jar
+        working-directory: Backend
+        run: |
+          chmod +x mvnw
+          ./mvnw --batch-mode --no-transfer-progress -DskipTests package
+
+      - name: Start backend
+        working-directory: Backend
+        run: |
+          jar_file=$(find target -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' | head -n 1)
+          test -n "$jar_file"
+          nohup java -jar "$jar_file" > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+
+      - name: Wait for backend
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/backend.log
+          exit 1
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Start frontend
+        run: |
+          nohup npm run start -- --hostname 127.0.0.1 > /tmp/frontend.log 2>&1 &
+          echo $! > /tmp/frontend.pid
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/login >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/frontend.log
+          exit 1
+
+      - name: Run Playwright E2E
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload application logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-application-logs
+          path: |
+            /tmp/backend.log
+            /tmp/frontend.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop infrastructure
+        if: always()
+        working-directory: Backend
+        run: docker compose -f docker-compose.dev.yml down -v
+
+  dependency-review:
+    name: Security • Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dependency review
+        continue-on-error: true
+        uses: actions/dependency-review-action@v4

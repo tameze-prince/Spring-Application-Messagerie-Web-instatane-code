@@ -35,7 +35,7 @@ public class WsChannelInterceptor implements ChannelInterceptor {
             if (authorization != null && !authorization.isEmpty()) {
                 String bearerToken = authorization.get(0);
                 if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-                    token = bearerToken.substring(7);
+                    token = bearerToken.substring(7).trim();
                 }
             }
 
@@ -46,7 +46,7 @@ public class WsChannelInterceptor implements ChannelInterceptor {
                 }
             }
 
-            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+            if (StringUtils.hasText(token) && jwtTokenProvider.isAccessToken(token)) {
                 UUID userId = jwtTokenProvider.getUserIdFromToken(token);
                 UserDetails userDetails = userDetailsService.loadUserById(userId);
                 UsernamePasswordAuthenticationToken authentication =
@@ -54,6 +54,7 @@ public class WsChannelInterceptor implements ChannelInterceptor {
                 accessor.setUser(authentication);
             }
         }
+
         return message;
     }
 }

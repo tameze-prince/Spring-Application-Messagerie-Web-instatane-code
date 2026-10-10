@@ -56,6 +56,9 @@ function getColorFromName(name: string) {
   return colors[Math.abs(hash) % colors.length];
 }
 
+const MAX_MESSAGE_LENGTH = 4000;
+const MAX_SEARCH_LENGTH = 100;
+
 const frequencies = ["midnight", "daylight", "dusk", "paper", "focus"] as const;
 type Frequency = (typeof frequencies)[number];
 
@@ -174,9 +177,17 @@ export default function Messenger() {
 
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
-    if (!activeConversationId || !draft.trim()) return;
+    if (!activeConversationId) return;
 
     const text = draft.trim();
+    if (!text) {
+      setToast("Message cannot be empty");
+      return;
+    }
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      setToast(`Messages cannot exceed ${MAX_MESSAGE_LENGTH} characters`);
+      return;
+    }
     setDraft("");
 
     try {
@@ -253,7 +264,7 @@ export default function Messenger() {
           <div><p className="eyebrow">YOUR SPACE</p><h1>Messages</h1></div>
           <button className="icon-button" aria-label="Open command palette" onClick={() => setPaletteOpen(true)}><Icon name="command" /></button>
         </header>
-        <label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" /><kbd>⌘ K</kbd></label>
+        <label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" maxLength={MAX_SEARCH_LENGTH} /><kbd>⌘ K</kbd></label>
         <div className="section-title"><span>RECENT</span><button onClick={() => setToast("New conversation flow coming next")}>New <span aria-hidden="true">+</span></button></div>
         <div className="chat-list">
           {filteredConversations.map((conv) => {
@@ -311,9 +322,10 @@ export default function Messenger() {
             </div>
             <form className="composer" onSubmit={sendMessage}>
               <button type="button" className="icon-button" aria-label="Attach a file"><Icon name="paperclip" /></button>
-              <textarea ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onComposerKey} placeholder="Write a message…" rows={1} aria-label="Message" />
+              <textarea ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onComposerKey} placeholder="Write a message…" rows={1} aria-label="Message" aria-describedby="message-length-hint" maxLength={MAX_MESSAGE_LENGTH} />
+              <span id="message-length-hint" className="message-counter" aria-live="polite">{draft.length}/{MAX_MESSAGE_LENGTH}</span>
               <button type="button" className="icon-button" aria-label="Choose an expression"><Icon name="smile" /></button>
-              {draft ? <button className="send-button" aria-label="Send message" type="submit"><Icon name="send" size={19} /></button> : <button type="button" className="icon-button" aria-label="Record voice message"><Icon name="mic" /></button>}
+              {draft ? <button className="send-button" aria-label="Send message" type="submit" disabled={!draft.trim()}><Icon name="send" size={19} /></button> : <button type="button" className="icon-button" aria-label="Record voice message"><Icon name="mic" /></button>}
             </form>
           </>
         ) : (
@@ -374,5 +386,5 @@ function CommandPalette({ onClose, onFrequency, onSelect }: { onClose: () => voi
   const input = useRef<HTMLInputElement>(null); 
   useEffect(() => input.current?.focus(), []); 
   const actions = [{ label: "New conversation", icon: "chat" as IconName }, { label: "Create a group", icon: "users" as IconName }, { label: "Open appearance studio", icon: "palette" as IconName }, { label: "Settings", icon: "settings" as IconName }].filter(a => a.label.toLowerCase().includes(query.toLowerCase())); 
-  return <div className="palette-scrim" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={e => e.stopPropagation()}><div className="command-input"><Icon name="search" /><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search or run a command" /><kbd>ESC</kbd></div><p className="command-label">QUICK ACTIONS</p>{actions.map(action => <button key={action.label} onClick={() => onSelect(action.label)}><Icon name={action.icon} /><span>{action.label}</span><Icon name="arrow" size={16} /></button>)}<p className="command-label">FREQUENCIES</p><div className="frequency-options">{frequencies.map(f => <button onClick={() => onFrequency(f)} key={f}><span className={`frequency-swatch ${f}`} />{f[0].toUpperCase() + f.slice(1)}</button>)}</div></section></div>; 
+  return <div className="palette-scrim" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={e => e.stopPropagation()}><div className="command-input"><Icon name="search" /><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search or run a command" maxLength={MAX_SEARCH_LENGTH} aria-label="Search or run a command" /><kbd>ESC</kbd></div><p className="command-label">QUICK ACTIONS</p>{actions.map(action => <button key={action.label} onClick={() => onSelect(action.label)}><Icon name={action.icon} /><span>{action.label}</span><Icon name="arrow" size={16} /></button>)}<p className="command-label">FREQUENCIES</p><div className="frequency-options">{frequencies.map(f => <button onClick={() => onFrequency(f)} key={f}><span className={`frequency-swatch ${f}`} />{f[0].toUpperCase() + f.slice(1)}</button>)}</div></section></div>; 
 }
