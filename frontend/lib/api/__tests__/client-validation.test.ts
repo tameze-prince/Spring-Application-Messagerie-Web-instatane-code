@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, authApi, channelApi, fileApi, groupApi, messageApi, userApi } from "@/lib/api/client";
+import { ApiError, authApi, channelApi, fileApi, groupApi, messageApi, userApi } from "../client";
 
 describe("frontend API input validation", () => {
   it("rejects invalid registration fields before the HTTP request", () => {
