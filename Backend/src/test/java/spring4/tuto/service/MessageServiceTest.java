@@ -5,6 +5,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import spring4.tuto.common.exception.BadRequestException;
 import spring4.tuto.conversation.domain.Conversation;
 import spring4.tuto.conversation.repository.ConversationMemberRepository;
 import spring4.tuto.conversation.repository.ConversationRepository;
@@ -21,8 +22,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class MessageServiceTest {
@@ -78,4 +81,30 @@ class MessageServiceTest {
         assertEquals("senderUser", result.getSenderUsername());
         assertEquals(1L, result.getSequenceNumber());
     }
+    @Test
+    void sendMessageRejectsBlankBodiesBeforePersistence() {
+        assertThrows(BadRequestException.class, () ->
+                messageService.sendMessage(UUID.randomUUID(), UUID.randomUUID(), "TEXT", "   ", null));
+
+        verifyNoInteractions(messageRepository, reactionRepository, conversationRepository, memberRepository, userRepository);
+    }
+
+    @Test
+    void sendMessageRejectsBodiesLongerThanFourThousandCharacters() {
+        String body = "x".repeat(4001);
+
+        assertThrows(BadRequestException.class, () ->
+                messageService.sendMessage(UUID.randomUUID(), UUID.randomUUID(), "TEXT", body, null));
+
+        verifyNoInteractions(messageRepository, reactionRepository, conversationRepository, memberRepository, userRepository);
+    }
+
+    @Test
+    void editMessageRejectsBlankBodiesBeforeLoadingMessage() {
+        assertThrows(BadRequestException.class, () ->
+                messageService.editMessage(UUID.randomUUID(), UUID.randomUUID(), "\\n  "));
+
+        verifyNoInteractions(messageRepository, reactionRepository, conversationRepository, memberRepository, userRepository);
+    }
+
 }
