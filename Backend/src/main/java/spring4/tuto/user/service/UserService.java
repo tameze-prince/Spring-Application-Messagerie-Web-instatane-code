@@ -3,6 +3,7 @@ package spring4.tuto.user.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import spring4.tuto.common.exception.BadRequestException;
 import spring4.tuto.common.exception.ResourceNotFoundException;
 import spring4.tuto.user.domain.BlockedUser;
 import spring4.tuto.user.domain.User;
@@ -33,7 +34,11 @@ public class UserService {
         if (query == null || query.trim().isEmpty()) {
             return List.of();
         }
-        return userRepository.searchUsersFts(query.trim()).stream()
+        String normalizedQuery = query.trim();
+        if (normalizedQuery.length() > 100) {
+            throw new BadRequestException("Search query must not exceed 100 characters");
+        }
+        return userRepository.searchUsersFts(normalizedQuery).stream()
                 .map(UserDto::fromEntity)
                 .collect(Collectors.toList());
     }
