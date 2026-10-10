@@ -76,7 +76,13 @@ export const userApi = {
   me: () => api<{ success: boolean; data: UserDto }>("/users/me"),
   updateProfile: (data: UpdateProfileRequest) => api<{ success: boolean; data: UserDto }>("/users/me", { method: "PATCH", body: JSON.stringify(data) }),
   getById: (id: string) => api<{ success: boolean; data: UserDto }>(`/users/${id}`),
-  search: (q: string) => api<{ success: boolean; data: UserDto[] }>(`/users/search?q=${encodeURIComponent(q)}`),
+  search: (q: string) => {
+    const normalizedQuery = q.trim();
+    if (normalizedQuery.length > 100) {
+      throw new ApiError(400, "Search query must not exceed 100 characters.");
+    }
+    return api<{ success: boolean; data: UserDto[] }>(`/users/search?q=${encodeURIComponent(normalizedQuery)}`);
+  },
   block: (id: string) => api<{ success: boolean; data: null }>(`/users/${id}/block`, { method: "POST" }),
   unblock: (id: string) => api<{ success: boolean; data: null }>(`/users/${id}/block`, { method: "DELETE" }),
 };
