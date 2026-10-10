@@ -2,21 +2,48 @@
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) { super(message); }
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly fieldErrors?: Record<string, string>,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { 
-      "Content-Type": "application/json", 
+    headers: {
+      "Content-Type": "application/json",
       ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-      ...init.headers 
+      ...init.headers,
     },
     credentials: "include",
   });
-  if (!response.ok) throw new ApiError(response.status, (await response.text()) || "Request failed");
+
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = raw || "Request failed";
+    let fieldErrors: Record<string, string> | undefined;
+
+    try {
+      const payload = JSON.parse(raw) as { message?: string; data?: unknown };
+      message = payload.message || message;
+      if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) {
+        const entries = Object.entries(payload.data as Record<string, unknown>)
+          .filter((entry): entry is [string, string] => typeof entry[1] === "string");
+        if (entries.length > 0) fieldErrors = Object.fromEntries(entries);
+      }
+    } catch {
+      // Keep the raw response text when the server did not return JSON.
+    }
+
+    throw new ApiError(response.status, message, fieldErrors);
+  }
+
   return response.status === 204 ? (undefined as T) : response.json() as Promise<T>;
 }
 
