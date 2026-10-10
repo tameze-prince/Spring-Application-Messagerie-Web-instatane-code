@@ -36,6 +36,12 @@ test.describe("authentication smoke flow", () => {
     await expect(page.getByText("Enter a valid email address.")).toBeVisible();
     await expect(page.getByText("Password must be between 8 and 128 characters.")).toBeVisible();
 
+    await page.getByLabel("Username").fill("invalid username");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Password").fill("password123");
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByText("Username may contain only letters, numbers, dots, underscores and hyphens")).toBeVisible();
+
     await page.getByLabel("Username").fill(username);
     await page.getByLabel("Email address").fill(email);
     await page.getByLabel("Password").fill("password123");
