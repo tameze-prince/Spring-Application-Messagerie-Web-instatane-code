@@ -3,9 +3,14 @@ import { ws } from "@/lib/ws/client";
 import { useAuth } from "@/lib/context/AuthContext";
 
 type MessageListener = (data: unknown) => void;
-type TypingListener = (data: { conversationId: string; userId: string; username: string }) => void;
+type TypingListener = (data: {
+  conversationId: string;
+  userId: string;
+  username: string;
+}) => void;
 
-const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080/ws";
+const wsUrl =
+  process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080/ws";
 
 export function useWebSocket() {
   const { accessToken, isAuthenticated } = useAuth();
@@ -34,42 +39,68 @@ export function useWebSocket() {
     };
   }, [accessToken, isAuthenticated]);
 
+  const subscribeConversation = useCallback(
+    (conversationId: string, listener: MessageListener) => {
+      return ws.subscribeConversation(conversationId, payload => {
+        const event = payload as {
+          event?: string;
+          data?: unknown;
+        };
+
+        if (event?.event === "message.created") {
+          listener(event.data);
+        }
+      });
+    },
+    [],
+  );
+
   const onMessageCreated = useCallback((listener: MessageListener) => {
     return ws.on("message.created", listener);
   }, []);
 
-  const onTypingStarted = useCallback((listener: TypingListener) => {
-    return ws.on("typing.started", listener as MessageListener);
+  const onTypingStarted = useCallback(
+    (listener: TypingListener) => {
+      return ws.on("typing.started", listener as MessageListener);
+    },
+    [],
+  );
+
+  const onTypingStopped = useCallback(
+    (listener: TypingListener) => {
+      return ws.on("typing.stopped", listener as MessageListener);
+    },
+    [],
+  );
+
+  const sendMessage = useCallback(
+    (conversationId: string, content: string, replyToId?: string) => {
+      ws.sendMessage({
+        clientMessageId: crypto.randomUUID(),
+        conversationId,
+        content,
+        replyToId,
+      });
+    },
+    [],
+  );
+
+  const sendTypingStart = useCallback((conversationId: string) => {
+    ws.typingStart(conversationId);
   }, []);
 
-  const onTypingStopped = useCallback((listener: TypingListener) => {
-    return ws.on("typing.stopped", listener as MessageListener);
-  }, []);
-
-  const sendMessage = useCallback((conversationId: string, content: string, replyToId?: string) => {
-    ws.send({
-      clientMessageId: crypto.randomUUID(),
-      conversationId,
-      content,
-      replyToId
-    });
-  }, []);
-
-  const sendTypingStart = useCallback((conversationId: string, userId = "", username = "") => {
-    ws.typingStart(conversationId, userId, username);
-  }, []);
-
-  const sendTypingStop = useCallback((conversationId: string, userId = "", username = "") => {
-    ws.typingStop(conversationId, userId, username);
+  const sendTypingStop = useCallback((conversationId: string) => {
+    ws.typingStop(conversationId);
   }, []);
 
   return {
     isConnected,
+    subscribeConversation,
     onMessageCreated,
     onTypingStarted,
     onTypingStopped,
     sendMessage,
     sendTypingStart,
-    sendTypingStop
+    sendTypingStop,
   };
 }
