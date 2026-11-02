@@ -1,0 +1,31 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  java-backend:
+    name: Java (Backend)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: Backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: maven }
+      - name: Build + tests
+        run: |
+          if [ -f .mvn/wrapper/maven-wrapper.properties ]; then chmod +x mvnw && ./mvnw -B verify; else mvn -B verify; fi
+  node-frontend:
+    name: Node (frontend)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Lint (non bloquant tant que la dette ESLint existante n'est pas résorbée)
+        run: npm run lint --if-present
+        continue-on-error: true
+      - run: npm test --if-present
+      - run: npm run build --if-present
