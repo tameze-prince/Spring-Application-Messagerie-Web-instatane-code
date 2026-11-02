@@ -1,0 +1,11 @@
+.env
+.env.local
+!.env.example
+target/
+build/
+node_modules/
+.next/
+logs/
+*.tsbuildinfo
+.DS_Store
+.idea/
